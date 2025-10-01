@@ -85,6 +85,9 @@ Emulator::Emulator(const Arch &arch, const DCRS &dcrs, Core* core)
   #ifdef EXT_V_ENABLE
     , vec_unit_(core->vec_unit())
   #endif
+  #ifdef EXT_RTU_ENABLE
+    , rt_unit_(core->rt_unit())
+  #endif
 {
   std::srand(50);
   this->reset();
@@ -465,6 +468,26 @@ Word Emulator::get_csr(uint32_t addr, uint32_t wid, uint32_t tid) {
 
   CSR_READ_64(VX_CSR_MCYCLE, core_perf.cycles);
   CSR_READ_64(VX_CSR_MINSTRET, core_perf.instrs);
+
+#ifdef EXT_RTU_ENABLE
+  case VX_CSR_RTX_RO1:
+  case VX_CSR_RTX_RO2:
+  case VX_CSR_RTX_RO3:
+  case VX_CSR_RTX_RD1:
+  case VX_CSR_RTX_RD2:
+  case VX_CSR_RTX_RD3:
+  case VX_CSR_RTX_BCOORDS1:
+  case VX_CSR_RTX_BCOORDS2:
+  case VX_CSR_RTX_BCOORDS3:
+  case VX_CSR_RTX_BLAS_IDX:
+  case VX_CSR_RTX_TRI_IDX:
+  {
+    Word value = 0;
+    rt_unit_->get_csr(addr, wid, tid, &value);
+    return value;
+  }
+
+#endif
   default:
   #ifdef EXT_V_ENABLE
     Word value = 0;
@@ -493,7 +516,10 @@ Word Emulator::get_csr(uint32_t addr, uint32_t wid, uint32_t tid) {
         CSR_READ_64(VX_CSR_MPM_SCRB_TCU, core_perf.scrb_tcu);
       #endif
       #ifdef EXT_VPU_ENABLE
-        CSR_READ_64(VX_CSR_MPM_SCRB_TCU, core_perf.scrb_vpu);
+        CSR_READ_64(VX_CSR_MPM_SCRB_VPU, core_perf.scrb_vpu);
+      #endif
+      #ifdef EXT_RTU_ENABLE
+        CSR_READ_64(VX_CSR_MPM_SCRB_RTU, core_perf.scrb_rtu);
       #endif
         CSR_READ_64(VX_CSR_MPM_SCRB_CSRS, core_perf.scrb_csrs);
         CSR_READ_64(VX_CSR_MPM_SCRB_WCTL, core_perf.scrb_wctl);
@@ -597,6 +623,23 @@ void Emulator::set_csr(uint32_t addr, Word value, uint32_t wid, uint32_t tid) {
   case VX_CSR_MNSTATUS:
   case VX_CSR_MCAUSE:
     break;
+#ifdef EXT_RTU_ENABLE
+  case VX_CSR_RTX_RO1:
+  case VX_CSR_RTX_RO2:
+  case VX_CSR_RTX_RO3:
+  case VX_CSR_RTX_RD1:
+  case VX_CSR_RTX_RD2:
+  case VX_CSR_RTX_RD3:
+  case VX_CSR_RTX_BCOORDS1:
+  case VX_CSR_RTX_BCOORDS2:
+  case VX_CSR_RTX_BCOORDS3:
+  case VX_CSR_RTX_BLAS_IDX:
+  case VX_CSR_RTX_TRI_IDX:
+  {
+    rt_unit_->set_csr(addr, wid, tid, value);
+    break;
+  }
+#endif
   default: {
     #ifdef EXT_V_ENABLE
       if (vec_unit_->set_csr(addr, wid, tid, value))

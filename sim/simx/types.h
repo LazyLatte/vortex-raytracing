@@ -133,6 +133,9 @@ enum class FUType {
 #ifdef EXT_TCU_ENABLE
   TCU,
 #endif
+#ifdef EXT_RTU_ENABLE
+  RTU,
+#endif
   Count
 };
 
@@ -147,6 +150,9 @@ inline std::ostream &operator<<(std::ostream &os, const FUType& type) {
 #endif
 #ifdef EXT_TCU_ENABLE
   case FUType::TCU: os << "TCU"; break;
+#endif
+#ifdef EXT_RTU_ENABLE
+  case FUType::RTU: os << "RTU"; break;
 #endif
   default:
     assert(false);
@@ -661,6 +667,37 @@ inline std::ostream &operator<<(std::ostream &os, const TcuType& type) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+enum class RtuType {
+  Trace,
+};
+
+struct IntrRtuArgs {
+  // uint32_t fmt_s  : 4;
+  // uint32_t fmt_d  : 4;
+  // uint32_t step_m : 4;
+  // uint32_t step_n : 4;
+
+  // std::string to_string(RtuType type) const {
+  //   std::string str = "vm=" + std::to_string(vm) +
+  //                     ", funct6=" + std::to_string(funct6);
+  //   if (type == VopType::OPIVI || type == VopType::OPIVX) {
+  //     str += ", imm=" + to_hex_str(imm);
+  //   }
+  //   return str;
+  // }
+};
+
+inline std::ostream &operator<<(std::ostream &os, const RtuType& type) {
+  switch (type) {
+  case RtuType::Trace: os << "Trace"; break;
+  default:
+    assert(false);
+  }
+  return os;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 using OpType = std::variant<
   AluType
 , BrType
@@ -680,6 +717,9 @@ using OpType = std::variant<
 #ifdef EXT_TCU_ENABLE
 , TcuType
 #endif
+#ifdef EXT_RTU_ENABLE
+, RtuType
+#endif
 >;
 
 using IntrArgs = std::variant<
@@ -698,6 +738,9 @@ using IntrArgs = std::variant<
 #endif
 #ifdef EXT_TCU_ENABLE
 , IntrTcuArgs
+#endif
+#ifdef EXT_RTU_ENABLE
+, IntrRtuArgs
 #endif
 >;
 

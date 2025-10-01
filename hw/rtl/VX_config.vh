@@ -401,6 +401,12 @@
 `define NUM_TCU_BLOCKS  `ISSUE_WIDTH
 `endif
 
+// Number of RTU units
+`define NUM_RTU_LANES   `NUM_THREADS
+`ifndef NUM_RTU_BLOCKS
+`define NUM_RTU_BLOCKS  `ISSUE_WIDTH
+`endif
+
 // Size of Instruction Buffer
 `ifndef IBUF_SIZE
 `define IBUF_SIZE   4
@@ -902,6 +908,12 @@
     `define EXT_TCU_ENABLED 0
 `endif
 
+`ifdef EXT_RTU_ENABLE
+    `define EXT_RTU_ENABLED 1
+`else
+    `define EXT_RTU_ENABLED 0
+`endif
+
 `define ISA_STD_A           0
 `define ISA_STD_C           2
 `define ISA_STD_D           3
@@ -921,6 +933,7 @@
 `define ISA_EXT_LMEM        4
 `define ISA_EXT_ZICOND      5
 `define ISA_EXT_TCU         6
+`define ISA_EXT_RTU         7
 
 `define MISA_EXT  (`ICACHE_ENABLED  << `ISA_EXT_ICACHE) \
                 | (`DCACHE_ENABLED  << `ISA_EXT_DCACHE) \
@@ -929,6 +942,7 @@
                 | (`LMEM_ENABLED    << `ISA_EXT_LMEM) \
                 | (`EXT_ZICOND_ENABLED << `ISA_EXT_ZICOND) \
                 | (`EXT_TCU_ENABLED << `ISA_EXT_TCU) \
+                | (`EXT_RTU_ENABLED << `ISA_EXT_RTU) \
 
 `define MISA_STD  (`EXT_A_ENABLED <<  0) /* A - Atomic Instructions extension */ \
                 | (0 <<  1) /* B - Tentatively reserved for Bit operations extension */ \

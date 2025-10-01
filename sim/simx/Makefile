@@ -39,6 +39,10 @@ endif
 ifneq ($(findstring -DEXT_TCU_ENABLE, $(CONFIGS)),)
   	SRCS += $(SRC_DIR)/tensor_unit.cpp
 endif
+# Add RTU extension sources
+ifneq ($(findstring -DEXT_RTU_ENABLE, $(CONFIGS)),)
+  	SRCS += $(SRC_DIR)/rt_unit.cpp
+endif
 
 # Debugging
 ifdef DEBUG

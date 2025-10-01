@@ -64,6 +64,9 @@ public:
   #ifdef EXT_TCU_ENABLE
     uint64_t scrb_tcu;
   #endif
+  #ifdef EXT_RTU_ENABLE
+    uint64_t scrb_rtu;
+  #endif
     uint64_t ifetches;
     uint64_t loads;
     uint64_t stores;
@@ -90,6 +93,9 @@ public:
     #endif
     #ifdef EXT_TCU_ENABLE
       , scrb_tcu(0)
+    #endif
+    #ifdef EXT_RTU_ENABLE
+      , scrb_rtu(0)
     #endif
       , ifetches(0)
       , loads(0)
@@ -171,6 +177,12 @@ public:
   }
 #endif
 
+#ifdef EXT_RTU_ENABLE
+  RTUnit::Ptr& rt_unit() {
+    return rt_unit_;
+  }
+#endif
+
   auto& trace_pool() {
     return trace_pool_;
   }
@@ -198,6 +210,10 @@ private:
 
 #ifdef EXT_V_ENABLE
   VecUnit::Ptr vec_unit_;
+#endif
+
+#ifdef EXT_RTU_ENABLE
+  RTUnit::Ptr rt_unit_;
 #endif
 
   Emulator emulator_;

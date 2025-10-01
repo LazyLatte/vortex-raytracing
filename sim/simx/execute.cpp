@@ -1276,7 +1276,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
             continue;
           Word csr_value = this->get_csr(csr_addr, wid, t);
           auto src_data = csrArgs.is_imm ? csrArgs.imm : rs1_data[t].i;
-          this->set_csr(csr_addr, src_data, t, wid);
+          this->set_csr(csr_addr, src_data, wid, t);
           rd_data[t].i = csr_value;
         }
       } break;
@@ -1287,7 +1287,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
           Word csr_value = this->get_csr(csr_addr, wid, t);
           auto src_data = csrArgs.is_imm ? csrArgs.imm : rs1_data[t].i;
           if (src_data != 0) {
-            this->set_csr(csr_addr, csr_value | src_data, t, wid);
+            this->set_csr(csr_addr, csr_value | src_data, wid, t);
           }
           rd_data[t].i = csr_value;
         }
@@ -1299,7 +1299,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
           Word csr_value = this->get_csr(csr_addr, wid, t);
           auto src_data = csrArgs.is_imm ? csrArgs.imm : rs1_data[t].i;
           if (src_data != 0) {
-            this->set_csr(csr_addr, csr_value & ~src_data, t, wid);
+            this->set_csr(csr_addr, csr_value & ~src_data, wid, t);
           }
           rd_data[t].i = csr_value;
         }
@@ -1466,6 +1466,28 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
       }
     }
   #endif // EXT_TCU_ENABLE
+  #ifdef EXT_RTU_ENABLE
+    ,[&](RtuType rtu_type) {
+      auto rtuArgs = std::get<IntrRtuArgs>(instrArgs);
+      switch (rtu_type) {
+      case RtuType::Trace: {
+        auto trace_data = std::make_shared<RTUnit::MemTraceData>(num_threads);
+        trace->data = trace_data;
+
+        for (uint32_t t = thread_start; t < num_threads; ++t) {
+          if (!warp.tmask.test(t))
+            continue;
+          float dist = rt_unit_->traverse(wid, t, trace_data.get());
+          rd_data[t].i = *reinterpret_cast<uint32_t*>(&dist);
+          
+        }
+        rd_write = true;
+      } break;
+      default:
+        std::abort();
+      }
+    }
+  #endif // EXT_RTU_ENABLE
   );
 
   if (rd_write) {
