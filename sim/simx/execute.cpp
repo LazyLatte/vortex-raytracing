@@ -1466,6 +1466,28 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
       }
     }
   #endif // EXT_TCU_ENABLE
+  #ifdef EXT_RTU_ENABLE
+    ,[&](RtuType rtu_type) {
+      auto rtuArgs = std::get<IntrRtuArgs>(instrArgs);
+      switch (rtu_type) {
+      case RtuType::Trace: {
+        auto trace_data = std::make_shared<RTUnit::MemTraceData>(num_threads);
+        trace->data = trace_data;
+
+        for (uint32_t t = thread_start; t < num_threads; ++t) {
+          if (!warp.tmask.test(t))
+            continue;
+          float dist = rt_unit_->traverse(wid, t, trace_data.get());
+          rd_data[t].i = *reinterpret_cast<uint32_t*>(&dist);
+          
+        }
+        rd_write = true;
+      } break;
+      default:
+        std::abort();
+      }
+    }
+  #endif // EXT_RTU_ENABLE
   );
 
   if (rd_write) {

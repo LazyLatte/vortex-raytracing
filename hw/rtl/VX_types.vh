@@ -25,7 +25,14 @@
 `define VX_DCR_BASE_STARTUP_ARG0        12'h003
 `define VX_DCR_BASE_STARTUP_ARG1        12'h004
 `define VX_DCR_BASE_MPM_CLASS           12'h005
-`define VX_DCR_BASE_STATE_END           12'h006
+
+`define VX_DCR_BASE_RTX_TLAS_PTR        12'h006
+`define VX_DCR_BASE_RTX_BLAS_PTR        12'h007
+`define VX_DCR_BASE_RTX_BVH_PTR         12'h008
+`define VX_DCR_BASE_RTX_TRI_PTR         12'h009
+`define VX_DCR_BASE_RTX_TRI_IDX_PTR     12'h00A
+
+`define VX_DCR_BASE_STATE_END           12'h00B
 
 `define VX_DCR_BASE_STATE(addr)         ((addr) - `VX_DCR_BASE_STATE_BEGIN)
 `define VX_DCR_BASE_STATE_COUNT         (`VX_DCR_BASE_STATE_END-`VX_DCR_BASE_STATE_BEGIN)
@@ -103,6 +110,8 @@
 `define VX_CSR_MPM_SCRB_VPU_H           12'hB93
 `define VX_CSR_MPM_SCRB_TCU             12'hB14
 `define VX_CSR_MPM_SCRB_TCU_H           12'hB94
+`define VX_CSR_MPM_SCRB_RTU             12'hB15
+`define VX_CSR_MPM_SCRB_RTU_H           12'hB95
 // PERF: memory
 `define VX_CSR_MPM_IFETCHES             12'hB0E
 `define VX_CSR_MPM_IFETCHES_H           12'hB8E
@@ -209,6 +218,28 @@
 `define VX_CSR_CORE_ID                  12'hCC2
 `define VX_CSR_ACTIVE_WARPS             12'hCC3
 `define VX_CSR_ACTIVE_THREADS           12'hCC4     // warning! this value is also used in LLVM
+
+//---------------------------------------------
+// ray origin
+`define VX_CSR_RTX_RO1                  12'hCC5 
+`define VX_CSR_RTX_RO2                  12'hCC6 
+`define VX_CSR_RTX_RO3                  12'hCC7 
+
+// ray direction 
+`define VX_CSR_RTX_RD1                  12'hCC8 
+`define VX_CSR_RTX_RD2                  12'hCC9 
+`define VX_CSR_RTX_RD3                  12'hCCA 
+
+// bcoord
+`define VX_CSR_RTX_BCOORDS1             12'hCCB
+`define VX_CSR_RTX_BCOORDS2             12'hCCC 
+`define VX_CSR_RTX_BCOORDS3             12'hCCD 
+
+// BLAS IDX, TRI IDX
+`define VX_CSR_RTX_BLAS_IDX             12'hCCE
+`define VX_CSR_RTX_TRI_IDX              12'hCCF
+
+//---------------------------------------------
 
 `define VX_CSR_NUM_THREADS              12'hFC0
 `define VX_CSR_NUM_WARPS                12'hFC1

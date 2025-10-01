@@ -45,6 +45,9 @@ Core::Core(const SimContext& ctx,
 #ifdef EXT_V_ENABLE
   , vec_unit_(VecUnit::Create("vpu", arch, this))
 #endif
+#ifdef EXT_RTU_ENABLE
+  , rt_unit_(RTUnit::Create("rtu", arch, dcrs, this))
+#endif
   , emulator_(arch, dcrs, this)
   , ibuffers_(arch.num_warps(), IBUF_SIZE)
   , scoreboard_(arch_)
@@ -145,7 +148,9 @@ Core::Core(const SimContext& ctx,
 #ifdef EXT_TCU_ENABLE
   dispatchers_.at((int)FUType::TCU) = SimPlatform::instance().create_object<Dispatcher>(this, 2, NUM_TCU_BLOCKS, NUM_TCU_LANES);
 #endif
-
+#ifdef EXT_RTU_ENABLE
+  dispatchers_.at((int)FUType::RTU) = SimPlatform::instance().create_object<Dispatcher>(this, 2, NUM_RTU_BLOCKS, NUM_RTU_LANES);
+#endif
   // initialize execute units
   func_units_.at((int)FUType::ALU) = SimPlatform::instance().create_object<AluUnit>(this);
   func_units_.at((int)FUType::FPU) = SimPlatform::instance().create_object<FpuUnit>(this);
@@ -156,6 +161,9 @@ Core::Core(const SimContext& ctx,
 #endif
 #ifdef EXT_TCU_ENABLE
   func_units_.at((int)FUType::TCU) = SimPlatform::instance().create_object<TcuUnit>(this);
+#endif
+#ifdef EXT_RTU_ENABLE
+  func_units_.at((int)FUType::RTU) = SimPlatform::instance().create_object<RtuUnit>(this);
 #endif
 
   // bind commit arbiters
@@ -348,6 +356,9 @@ void Core::issue() {
         #endif
         #ifdef EXT_TCU_ENABLE
           case FUType::TCU: ++perf_stats_.scrb_tcu; break;
+        #endif
+        #ifdef EXT_RTU_ENABLE
+          case FUType::RTU: ++perf_stats_.scrb_rtu; break;
         #endif
           default: assert(false);
           }

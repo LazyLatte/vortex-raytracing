@@ -26,7 +26,9 @@
 #ifdef EXT_V_ENABLE
 #include "vec_unit.h"
 #endif
-
+#ifdef EXT_RTU_ENABLE
+#include "rt_unit.h"
+#endif
 namespace vortex {
 
 class Arch;
@@ -161,6 +163,10 @@ private:
 
 #ifdef EXT_V_ENABLE
   VecUnit::Ptr vec_unit_;
+#endif
+
+#ifdef EXT_RTU_ENABLE
+  RTUnit::Ptr rt_unit_;
 #endif
 
   PoolAllocator<Instr, 64> instr_pool_;
