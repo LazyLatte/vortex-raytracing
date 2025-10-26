@@ -37,5 +37,6 @@ private:
   vx_buffer_h tlasBuffer_ = nullptr;    // store TLAS nodes
   vx_buffer_h blasBuffer_ = nullptr;    // store BLAS nodes
   vx_buffer_h bvhBuffer_ = nullptr;     // store BVH nodes
+  vx_buffer_h qBvhBuffer_ = nullptr;    // store Quantized BVH nodes
   vx_buffer_h idxBuffer_ = nullptr;     // store triangle indices
 };

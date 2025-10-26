@@ -30,7 +30,7 @@ struct AABB {
 // bounding volume hierarchy, to be used as BLAS
 class BVH {
 public:
-  BVH(const tri_t *triData, const float3_t *centroids, uint32_t triCount, bvh_node_t* bvh_nodes, uint32_t *triIndices);
+  BVH(const tri_t *triData, const float3_t *centroids, uint32_t triCount, bvh_node_t* bvh_nodes, bvh_quantized_node_t *bvh_qnodes, uint32_t *triIndices, uint32_t offset);
   ~BVH();
 
   auto &aabbMin() const { return bvhNodes_[0].aabbMin; }
@@ -51,12 +51,15 @@ private:
   void updateNodeBounds(bvh_node_t &node, float3_t *centroidMin, float3_t *centroidMax) const;
   uint32_t partitionTriangles(const bvh_node_t &node, uint32_t axis, uint32_t splitPos, const float3_t &centroidMin, const float3_t &centroidMax) const;
   float findBestSplitPlane(const bvh_node_t &node, const float3_t &centroidMin, const float3_t &centroidMax, uint32_t *axis, uint32_t *splitPos) const;
+  void quantize();
 
+  uint32_t offset_ = 0;
   uint32_t triCount_ = 0;        // number of triangles
   const tri_t *triData_ = nullptr; // pointer to mesh vertices
   const float3_t *centroids_ = nullptr; // triangle centroids
   uint32_t *triIndices_ = nullptr; // triangle indices
   bvh_node_t *bvhNodes_ = nullptr;
+  bvh_quantized_node_t *bvhQNodes_ = nullptr;
   uint32_t nodeCount_ = 0;
 };
 
@@ -64,7 +67,7 @@ private:
 class TLAS {
 public:
   TLAS() = default;
-  TLAS(const std::vector<BVH*>& bvh_list, const blas_node_t *blas_nodes);
+  TLAS(const std::vector<BVH*>& bvh_list, const blas_node_t *blas_nodes, bvh_quantized_node_t *bvh_qnodes);
   ~TLAS();
 
   void build();
@@ -72,15 +75,17 @@ public:
   auto &nodes() const { return tlasNodes_; }
 
   uint32_t rootIndex() const { return rootIndex_; }
-
+  
 private:
 
   uint32_t buildRecursive(uint32_t start, uint32_t end, uint32_t &currentInternalNodeIndex);
 
   uint32_t partition(int start, int end, int axis, float splitPos);
-
+  void quantize();
+  
   const std::vector<BVH*>& bvh_list_;
   const blas_node_t *blas_nodes_ = nullptr;
+  bvh_quantized_node_t *bvhQNodes_ = nullptr;
   std::vector<tlas_node_t> tlasNodes_;
   std::vector<uint32_t> nodeIndices_;
   std::vector<uint32_t> triCounts_;

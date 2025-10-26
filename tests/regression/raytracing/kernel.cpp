@@ -8,7 +8,7 @@
 
 void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
 
-  //vx_printf("*** tile: %d %d\n", blockIdx.x, blockIdx.y);
+  //vx_printf("*** tile: %d\n", sizeof(bvh_quantized_node_t));
   auto out_ptr = reinterpret_cast<uint32_t *>(arg->dst_addr);
 
   for (uint32_t ty = 0; ty < BLOCK_SIZE; ++ty) {

@@ -24,6 +24,7 @@ public:
 
   const auto &blas_nodes() const { return blas_nodes_; }
   const auto &bvh_nodes() const { return bvh_nodes_; }
+  const auto &bvh_quantized_nodes() const { return bvh_quantized_nodes_; }
 
   const auto &tri_buf() const { return tri_buf_; }
   const auto &triEx_buf() const { return triEx_buf_; }
@@ -41,6 +42,7 @@ private:
 
   std::vector<blas_node_t> blas_nodes_;
   std::vector<bvh_node_t> bvh_nodes_;
+  std::vector<bvh_quantized_node_t> bvh_quantized_nodes_;
   std::vector<tri_t> tri_buf_;
   std::vector<tri_ex_t> triEx_buf_;
   std::vector<uint32_t> triIdx_buf_;

@@ -10,22 +10,49 @@
 #define RAY_TRIANGLE_INTERSECTION_LATENCY 16
 
 namespace vortex {
-    // class RTUnit;
-    // class RT_OP_Unit{
-    //     public:
+    Ray ray_transform(Ray ray, float *transform_matrix){     
+        //latency += TRANSFORM_LATENCY;
 
-    //     private:
-    //         RTUnit* rt_unit;
-    // };
+        float m00 = transform_matrix[0];
+        float m01 = transform_matrix[1];
+        float m02 = transform_matrix[2];
+        float m03 = transform_matrix[3];
+
+        float m10 = transform_matrix[4];
+        float m11 = transform_matrix[5];
+        float m12 = transform_matrix[6];
+        float m13 = transform_matrix[7];
+        
+        float m20 = transform_matrix[8];
+        float m21 = transform_matrix[9];
+        float m22 = transform_matrix[10];
+        float m23 = transform_matrix[11];
+
+        // float m30 = transform_matrix[12];
+        // float m31 = transform_matrix[13];
+        // float m32 = transform_matrix[14];
+        // float m33 = transform_matrix[15];
+
+        Ray transformed_ray;
+        transformed_ray.ro_x = m00 * ray.ro_x + m01 * ray.ro_y + m02 * ray.ro_z + m03;
+        transformed_ray.ro_y = m10 * ray.ro_x + m11 * ray.ro_y + m12 * ray.ro_z + m13;
+        transformed_ray.ro_z = m20 * ray.ro_x + m21 * ray.ro_y + m22 * ray.ro_z + m23;
+
+        transformed_ray.rd_x = m00 * ray.rd_x + m01 * ray.rd_y + m02 * ray.rd_z;
+        transformed_ray.rd_y = m10 * ray.rd_x + m11 * ray.rd_y + m12 * ray.rd_z;
+        transformed_ray.rd_z = m20 * ray.rd_x + m21 * ray.rd_y + m22 * ray.rd_z;
+        return transformed_ray;
+    }
 
     float ray_tri_intersect(
-        Ray ray,
+        Ray ray_,
         float v0_x, float v0_y, float v0_z,
         float v1_x, float v1_y, float v1_z,
         float v2_x, float v2_y, float v2_z,
         float &bx, float &by, float &bz,
-        uint32_t& latency
+        float *m, uint32_t& latency
     ){
+        Ray ray = ray_transform(ray_, m);
         latency += RAY_TRIANGLE_INTERSECTION_LATENCY;
 
         float ro_x = ray.ro_x, ro_y = ray.ro_y, ro_z = ray.ro_z;
@@ -79,11 +106,12 @@ namespace vortex {
     }
 
     float ray_box_intersect(
-        Ray ray,
+        Ray ray_,
         float min_x, float min_y, float min_z, 
         float max_x, float max_y, float max_z,
-        uint32_t& latency
+        float *m, uint32_t& latency
     ){
+        Ray ray = ray_transform(ray_, m);
         latency += RAY_BOX_INTERSECTION_LATENCY;
         float ro_x = ray.ro_x, ro_y = ray.ro_y, ro_z = ray.ro_z;
         float rd_x = ray.rd_x, rd_y = ray.rd_y, rd_z = ray.rd_z;
@@ -107,36 +135,5 @@ namespace vortex {
         return tmax < tmin || tmax <= 0 ? LARGE_FLOAT : tmin;
     }
 
-    Ray transform(Ray ray, float transform_matrix[16], uint32_t& latency){     
-        latency += TRANSFORM_LATENCY;
 
-        float m00 = transform_matrix[0];
-        float m01 = transform_matrix[1];
-        float m02 = transform_matrix[2];
-        float m03 = transform_matrix[3];
-
-        float m10 = transform_matrix[4];
-        float m11 = transform_matrix[5];
-        float m12 = transform_matrix[6];
-        float m13 = transform_matrix[7];
-        
-        float m20 = transform_matrix[8];
-        float m21 = transform_matrix[9];
-        float m22 = transform_matrix[10];
-        float m23 = transform_matrix[11];
-
-        // float m30 = transform_matrix[12];
-        // float m31 = transform_matrix[13];
-        // float m32 = transform_matrix[14];
-        // float m33 = transform_matrix[15];
-
-        Ray transformed_ray;
-        transformed_ray.ro_x = m00 * ray.ro_x + m01 * ray.ro_y + m02 * ray.ro_z + m03;
-        transformed_ray.ro_y = m10 * ray.ro_x + m11 * ray.ro_y + m12 * ray.ro_z + m13;
-        transformed_ray.ro_z = m20 * ray.ro_x + m21 * ray.ro_y + m22 * ray.ro_z + m23;
-
-        transformed_ray.rd_x = m00 * ray.rd_x + m01 * ray.rd_y + m02 * ray.rd_z;
-        transformed_ray.rd_y = m10 * ray.rd_x + m11 * ray.rd_y + m12 * ray.rd_z;
-        transformed_ray.rd_z = m20 * ray.rd_x + m21 * ray.rd_y + m22 * ray.rd_z;
-    }
 }

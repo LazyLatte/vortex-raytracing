@@ -30,6 +30,7 @@ int Scene::init() {
   triIdx_buf_.resize(num_tris);
   centroids_.resize(num_tris);
   bvh_nodes_.resize(num_tris * 2);
+  bvh_quantized_nodes_.resize((2 * meshes_.size() - 1) + (num_tris * 2));
   blas_nodes_.resize(meshes_.size());
 
   // create BVH objects
@@ -37,7 +38,7 @@ int Scene::init() {
   uint32_t tri_offset = 0;
   uint64_t tex_offset = 0;
 
-  uint32_t treeletID = -1;
+  //uint32_t treeletID = -1;
   for (uint32_t i = 0; i < meshes_.size(); ++i) {
     auto mesh = meshes_.at(i);
 
@@ -55,7 +56,7 @@ int Scene::init() {
 
     // setup blas node
     auto &blas_node = blas_nodes_.at(i);
-    blas_node.bvh_offset = bvh_offset;
+    blas_node.bvh_offset = (2 * meshes_.size() - 1) + bvh_offset;
     blas_node.tex_offset = tex_offset;
     blas_node.transform = mat4_t::Identity();
     blas_node.invTransform = mat4_t::Identity();
@@ -64,13 +65,12 @@ int Scene::init() {
     blas_node.reflectivity = mesh->reflectivity();
     // create BVH
 
-    auto bvh = new BVH(tri_buf_.data(), centroids_.data(), mesh->tri().size(), bvh_nodes_.data() + bvh_offset, triIdx_buf_.data() + tri_offset);
-
+    auto bvh = new BVH(tri_buf_.data(), centroids_.data(), mesh->tri().size(), bvh_nodes_.data() + bvh_offset, bvh_quantized_nodes_.data() + blas_node.bvh_offset, triIdx_buf_.data() + tri_offset, blas_node.bvh_offset);
     //Treelet
-    float bestCost[bvh->nodeCount()];
-    treelet_cost_calculation(bvh->nodes(), 0, bestCost);
-    treelet_assignment(bvh->nodes(), treeletID, bestCost);
-    visualize(bvh->nodes(), "tree-" + std::to_string(i) + ".dot");
+    // float bestCost[bvh->nodeCount()];
+    // treelet_cost_calculation(bvh->nodes(), 0, bestCost);
+    // treelet_assignment(bvh->nodes(), treeletID, bestCost);
+    // visualize(bvh->nodes(), "tree-" + std::to_string(i) + ".dot");
 
     // update offsets
     bvh_offset += bvh->nodeCount();
@@ -80,7 +80,7 @@ int Scene::init() {
   }
 
   // create TLAS
-  tlas_ = new TLAS(bvh_list_, blas_nodes_.data());
+  tlas_ = new TLAS(bvh_list_, blas_nodes_.data(), bvh_quantized_nodes_.data());
 
   // position meshes around Y axis
   this->arrangeMeshesAroundY(0.0f);

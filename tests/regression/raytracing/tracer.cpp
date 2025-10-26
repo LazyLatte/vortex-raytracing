@@ -80,6 +80,7 @@ Tracer::~Tracer() {
     vx_mem_free(tlasBuffer_);
     vx_mem_free(blasBuffer_);
     vx_mem_free(bvhBuffer_);
+    vx_mem_free(qBvhBuffer_);
     vx_mem_free(idxBuffer_);
     // close device
     vx_dev_close(device_);
@@ -104,6 +105,7 @@ int Tracer::init(const char *kernel_file, const char* model_file, uint32_t mesh_
     kernel_arg_.triEx_addr = (uint64_t)scene_->triEx_buf().data();
     kernel_arg_.triIdx_addr = (uint64_t)scene_->triIdx_buf().data();
     kernel_arg_.bvh_addr = (uint64_t)scene_->bvh_nodes().data();
+    kernel_arg_.qBvh_addr = (uint64_t)scene_->bvh_quantized_nodes().data();
     kernel_arg_.tlas_addr = (uint64_t)scene_->tlas_nodes().data();
     kernel_arg_.blas_addr = (uint64_t)scene_->blas_nodes().data();
     kernel_arg_.tex_addr = (uint64_t)scene_->tex_buf().data();
@@ -136,6 +138,10 @@ int Tracer::init(const char *kernel_file, const char* model_file, uint32_t mesh_
     // allocate bvh buffer
     RT_CHECK(vx_mem_alloc(device_, scene_->bvh_nodes().size() * sizeof(bvh_node_t), VX_MEM_READ, &bvhBuffer_));
     RT_CHECK(vx_mem_address(bvhBuffer_, &kernel_arg_.bvh_addr));
+
+    // allocate Quantized bvh buffer
+    RT_CHECK(vx_mem_alloc(device_, scene_->bvh_quantized_nodes().size() * sizeof(bvh_quantized_node_t), VX_MEM_READ, &qBvhBuffer_));
+    RT_CHECK(vx_mem_address(qBvhBuffer_, &kernel_arg_.qBvh_addr));
 
     // allocate tex buffer
     RT_CHECK(vx_mem_alloc(device_, scene_->tex_buf().size(), VX_MEM_READ, &texBuffer_));
@@ -212,6 +218,9 @@ int Tracer::setup(float camera_vfov, float zoom, float3_t light_pos, float3_t li
   // upload bvh data
   RT_CHECK(vx_copy_to_dev(bvhBuffer_, scene_->bvh_nodes().data(), 0, scene_->bvh_nodes().size() * sizeof(bvh_node_t)));
 
+  // upload Quantized bvh data
+  RT_CHECK(vx_copy_to_dev(qBvhBuffer_, scene_->bvh_quantized_nodes().data(), 0, scene_->bvh_quantized_nodes().size() * sizeof(bvh_quantized_node_t)));
+
   // upload tex data
   RT_CHECK(vx_copy_to_dev(texBuffer_, scene_->tex_buf().data(), 0, scene_->tex_buf().size()));
 
@@ -219,8 +228,9 @@ int Tracer::setup(float camera_vfov, float zoom, float3_t light_pos, float3_t li
   RT_CHECK(vx_dcr_write(device_, 0x00000006, (uint32_t)(kernel_arg_.tlas_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x00000007, (uint32_t)(kernel_arg_.blas_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x00000008, (uint32_t)(kernel_arg_.bvh_addr)));
-  RT_CHECK(vx_dcr_write(device_, 0x00000009, (uint32_t)(kernel_arg_.tri_addr)));
-  RT_CHECK(vx_dcr_write(device_, 0x0000000A, (uint32_t)(kernel_arg_.triIdx_addr)));
+  RT_CHECK(vx_dcr_write(device_, 0x00000009, (uint32_t)(kernel_arg_.qBvh_addr)));
+  RT_CHECK(vx_dcr_write(device_, 0x0000000A, (uint32_t)(kernel_arg_.tri_addr)));
+  RT_CHECK(vx_dcr_write(device_, 0x0000000B, (uint32_t)(kernel_arg_.triIdx_addr)));
   return 0;
 }
 

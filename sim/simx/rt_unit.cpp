@@ -5,11 +5,13 @@
 #include <VX_config.h>
 #include <vector>
 #include <iostream>
+#include <cmath>
 #define BVH_STACK_SIZE 64
 
 #define TLAS_NODE_SIZE 32
 #define BLAS_NODE_SIZE 160
 #define BVH_NODE_SIZE 36
+#define QBVH_NODE_SIZE 40
 #define TRI_SIZE 36
 
 #define MEM_QUEUE_SIZE 32
@@ -227,46 +229,8 @@ public:
         v2 = *reinterpret_cast<float*>(&tmp);
     }
 
-    void read_mat4(
-        uint32_t ptr, 
-        float &m00, float &m01, float &m02, float &m03,
-        float &m10, float &m11, float &m12, float &m13, 
-        float &m20, float &m21, float &m22, float &m23, 
-        float &m30, float &m31, float &m32, float &m33
-    ){
-        uint32_t tmp;
-        dcache_read(&tmp, ptr + 0 * sizeof(float), sizeof(float));
-        m00 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 1 * sizeof(float), sizeof(float));
-        m01 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 2 * sizeof(float), sizeof(float));
-        m02 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 3 * sizeof(float), sizeof(float));
-        m03 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 4 * sizeof(float), sizeof(float));
-        m10 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 5 * sizeof(float), sizeof(float));
-        m11 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 6 * sizeof(float), sizeof(float));
-        m12 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 7 * sizeof(float), sizeof(float));
-        m13 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 8 * sizeof(float), sizeof(float));
-        m20 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 9 * sizeof(float), sizeof(float));
-        m21 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 10 * sizeof(float), sizeof(float));
-        m22 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 11 * sizeof(float), sizeof(float));
-        m23 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 12 * sizeof(float), sizeof(float));
-        m30 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 13 * sizeof(float), sizeof(float));
-        m31 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 14 * sizeof(float), sizeof(float));
-        m32 = *reinterpret_cast<float*>(&tmp);
-        dcache_read(&tmp, ptr + 15 * sizeof(float), sizeof(float));
-        m33 = *reinterpret_cast<float*>(&tmp);
+    void read_mat4(uint32_t ptr, float *m){
+        dcache_read(m, ptr, sizeof(float) * 16);
     }
 
     float traverse(uint32_t wid, uint32_t tid, MemTraceData* trace_data){
@@ -279,10 +243,11 @@ public:
         uint32_t tlas_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TLAS_PTR);
         uint32_t blas_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_BLAS_PTR);
         uint32_t bvh_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_BVH_PTR);
+        uint32_t qBvh_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_QBVH_PTR);
         uint32_t tri_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TRI_PTR);
         uint32_t tri_idx_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TRI_IDX_PTR);
 
-        RestartTrailTraversal rtt(tlas_ptr, blas_ptr, bvh_ptr, tri_ptr, tri_idx_ptr, this);
+        RestartTrailTraversal rtt(tlas_ptr, blas_ptr, bvh_ptr, qBvh_ptr, tri_ptr, tri_idx_ptr, this);
 
         rtt.traverse(ray_buffer, trace_data);
 
@@ -414,6 +379,7 @@ private:
                 uint32_t tlas_ptr,
                 uint32_t blas_ptr,
                 uint32_t bvh_ptr, 
+                uint32_t qBvh_ptr,
                 uint32_t tri_ptr, 
                 uint32_t tri_idx_ptr,
                 RTUnit::Impl* rt_unit
@@ -424,12 +390,14 @@ private:
         private:
             void push(uint32_t node_ptr);
             uint32_t pop(bool* terminate);
-            bool isLeaf(uint32_t node_ptr, uint32_t *leftFirst, uint32_t *triCount);
-            bool isTopLevelLeaf(uint32_t node_ptr, uint32_t *leftRight, uint32_t *blasIdx);
+            
+            
             void dcache_read(void* data, uint64_t addr, uint32_t size);
             void read_vec3(uint32_t ptr, float &v0, float &v1, float &v2);
-
-            uint32_t tlas_ptr, blas_ptr, bvh_ptr, tri_ptr, tri_idx_ptr;
+            bool read_node(uint32_t node_ptr, BVHNode *node);
+            bool isTopLevel(BVHNode *node);
+            bool isLeaf(BVHNode *node);
+            uint32_t tlas_ptr, blas_ptr, bvh_ptr, qBvh_ptr, tri_ptr, tri_idx_ptr;
 
             uint32_t trail;
             uint32_t level;
@@ -491,6 +459,7 @@ RTUnit::Impl::RestartTrailTraversal::RestartTrailTraversal(
     uint32_t tlas_ptr,
     uint32_t blas_ptr,
     uint32_t bvh_ptr, 
+    uint32_t qBvh_ptr,
     uint32_t tri_ptr, 
     uint32_t tri_idx_ptr, 
     RTUnit::Impl* rt_unit
@@ -498,6 +467,7 @@ RTUnit::Impl::RestartTrailTraversal::RestartTrailTraversal(
     tlas_ptr(tlas_ptr),
     blas_ptr(blas_ptr),
     bvh_ptr(bvh_ptr), 
+    qBvh_ptr(qBvh_ptr),
     tri_ptr(tri_ptr), 
     tri_idx_ptr(tri_idx_ptr),
     traversal_stack(5),
@@ -511,149 +481,119 @@ void RTUnit::Impl::RestartTrailTraversal::traverse(RayBuffer &ray_buf, RTUnit::M
 
     trail = 0;
 
-    uint32_t tlas_node_ptr = tlas_ptr, bvh_node_ptr = bvh_ptr;
-    uint32_t leftRight, blasIdx, leftFirst, triCount;
+    uint32_t blasIdx;
+    uint32_t node_ptr = qBvh_ptr;
     bool terminate = false;
+
+    BVHNode node;
+    float M[16];
+    float I[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     while(1){
-        //tlas
-        while(!isTopLevelLeaf(tlas_node_ptr, &leftRight, &blasIdx)){
-            std::cout << "Tlas node~" << std::endl;
-            uint32_t left = leftRight & 0xFFFF;
-            uint32_t right = leftRight >> 16;
-
-            uint32_t left_node_ptr = tlas_ptr + left * TLAS_NODE_SIZE;
-            uint32_t right_node_ptr = tlas_ptr + right * TLAS_NODE_SIZE;
-
+        while(read_node(node_ptr, &node)){
+            bool topLevel = isTopLevel(&node);
             float min_x, min_y, min_z, max_x, max_y, max_z;
-            
-            read_vec3(left_node_ptr + 0 * sizeof(float), min_x, min_y, min_z);
-            read_vec3(left_node_ptr + 4 * sizeof(float), max_x, max_y, max_z);
 
-            float dLeft = ray_box_intersect(ray_buf.ray, min_x, min_y, min_z, max_x, max_y, max_z, trace_data->pipeline_latency);
-            
-            read_vec3(right_node_ptr + 0 * sizeof(float), min_x, min_y, min_z);
-            read_vec3(right_node_ptr + 4 * sizeof(float), max_x, max_y, max_z);
+            min_x = node.px + std::ldexp(float(node.children[0].qaabb[0]), node.ex);
+            min_y = node.py + std::ldexp(float(node.children[0].qaabb[1]), node.ey);
+            min_z = node.pz + std::ldexp(float(node.children[0].qaabb[2]), node.ez);
 
-            float dRight = ray_box_intersect(ray_buf.ray, min_x, min_y, min_z, max_x, max_y, max_z, trace_data->pipeline_latency);
+            max_x = node.px + std::ldexp(float(node.children[0].qaabb[3]), node.ex);
+            max_y = node.py + std::ldexp(float(node.children[0].qaabb[4]), node.ey);
+            max_z = node.pz + std::ldexp(float(node.children[0].qaabb[5]), node.ez);
 
-            bool hitLeft = (dLeft != LARGE_FLOAT) && (dLeft < ray_buf.hit.dist);
-            bool hitRight = (dRight != LARGE_FLOAT) && (dRight < ray_buf.hit.dist);
+            float dLeft = ray_box_intersect(ray_buf.ray, min_x, min_y, min_z, max_x, max_y, max_z, 
+                topLevel ? I : M, trace_data->pipeline_latency);
 
-            if(hitLeft && hitRight){
-                uint32_t near = (dLeft < dRight) ? left : right;
-                uint32_t far = near ^ left ^ right;
-                level >>= 1;
+            min_x = node.px + std::ldexp(float(node.children[1].qaabb[0]), node.ex);
+            min_y = node.py + std::ldexp(float(node.children[1].qaabb[1]), node.ey);
+            min_z = node.pz + std::ldexp(float(node.children[1].qaabb[2]), node.ez);
 
-                if(trail & level){
-                    tlas_node_ptr = tlas_ptr + far * TLAS_NODE_SIZE;
-                }else{
-                    tlas_node_ptr = tlas_ptr + near * TLAS_NODE_SIZE;
-                    push(tlas_ptr + far * TLAS_NODE_SIZE);
-                }
-            }else if(hitLeft || hitRight){
-                level >>= 1;
-                if(level != popLevel){
-                    trail |= level;
-                    tlas_node_ptr = tlas_ptr + (hitLeft ? left : right) * TLAS_NODE_SIZE;
-                }else{
-                    tlas_node_ptr = pop(&terminate);
-                    if(terminate) return;
-                }
-            }else{
-                tlas_node_ptr = pop(&terminate);
-                if(terminate) return;
-            }
-        }
+            max_x = node.px + std::ldexp(float(node.children[1].qaabb[3]), node.ex);
+            max_y = node.py + std::ldexp(float(node.children[1].qaabb[4]), node.ey);
+            max_z = node.pz + std::ldexp(float(node.children[1].qaabb[5]), node.ez);
 
-        //transform();
-        // uint32_t bvh_offset;
-        // uint32_t blas_node_ptr = blas_ptr + blasIdx * BLAS_NODE_SIZE;
-        // dcache_read(&bvh_offset, blas_node_ptr + 32 * sizeof(float), sizeof(uint32_t));
-        //bvh_node_ptr = bvh_ptr;// + bvh_offset * BVH_NODE_SIZE;
-        //std::cout << bvh_offset << std::endl;
-        //bvh
-        while(!isLeaf(bvh_node_ptr, &leftFirst, &triCount)){
-            uint32_t left = leftFirst;
-            uint32_t right = left + 1;
-            
-            uint32_t left_node_ptr = bvh_ptr + left * BVH_NODE_SIZE;
-            uint32_t right_node_ptr = bvh_ptr + right * BVH_NODE_SIZE;
+            float dRight = ray_box_intersect(ray_buf.ray, min_x, min_y, min_z, max_x, max_y, max_z, 
+                topLevel ? I : M, trace_data->pipeline_latency);
 
-            float min_x, min_y, min_z, max_x, max_y, max_z;
-            
-            read_vec3(left_node_ptr + 0 * sizeof(float), min_x, min_y, min_z);
-            read_vec3(left_node_ptr + 4 * sizeof(float), max_x, max_y, max_z);
-
-            float dLeft = ray_box_intersect(ray_buf.ray, min_x, min_y, min_z, max_x, max_y, max_z, trace_data->pipeline_latency);
-
-            read_vec3(right_node_ptr + 0 * sizeof(float), min_x, min_y, min_z);
-            read_vec3(right_node_ptr + 4 * sizeof(float), max_x, max_y, max_z);
-
-            float dRight = ray_box_intersect(ray_buf.ray, min_x, min_y, min_z, max_x, max_y, max_z, trace_data->pipeline_latency);
+            //--------------------
 
             bool hitLeft  = (dLeft != LARGE_FLOAT) && (dLeft < ray_buf.hit.dist);
             bool hitRight = (dRight != LARGE_FLOAT) && (dRight < ray_buf.hit.dist);
 
+            uint32_t left = node.leftRight & 0xFFFF;
+            uint32_t right = node.leftRight >> 16;
+
             if(hitLeft && hitRight){
                 uint32_t near = (dLeft < dRight) ? left : right;
                 uint32_t far = near ^ left ^ right;
                 level >>= 1;
 
                 if(trail & level){
-                    bvh_node_ptr = bvh_ptr + far * BVH_NODE_SIZE;
+                    node_ptr = qBvh_ptr + far * QBVH_NODE_SIZE;
                 }else{
-                    bvh_node_ptr = bvh_ptr + near * BVH_NODE_SIZE;
-                    push(bvh_ptr + far * BVH_NODE_SIZE);
+                    node_ptr = qBvh_ptr + near * QBVH_NODE_SIZE;
+                    push(qBvh_ptr + far * QBVH_NODE_SIZE);
                 }
             }else if(hitLeft || hitRight){
                 level >>= 1;
                 if(level != popLevel){
                     trail |= level;
-                    bvh_node_ptr = bvh_ptr + (hitLeft ? left : right) * BVH_NODE_SIZE;
+                    node_ptr = qBvh_ptr + (hitLeft ? left : right) * QBVH_NODE_SIZE;
                 }else{
-                    bvh_node_ptr = pop(&terminate);
+                    node_ptr = pop(&terminate);
                     if(terminate) return;
                 }
             }else{
-                bvh_node_ptr = pop(&terminate);
+                node_ptr = pop(&terminate);
                 if(terminate) return;
             }
 
         }
+        //std::cout << "Leaf: " << (uint32_t)node.imask << std::endl;
+        if(isTopLevel(&node)){
+            blasIdx = node.leafIdx;
+            uint32_t bvh_offset;
+            uint32_t blas_node_ptr = blas_ptr + blasIdx * BLAS_NODE_SIZE;
+            dcache_read(&bvh_offset, blas_node_ptr + 32 * sizeof(float), sizeof(uint32_t));
+            dcache_read(&M[0], blas_node_ptr + 16 * sizeof(float), 16 * sizeof(float));
+            node_ptr = qBvh_ptr + bvh_offset * QBVH_NODE_SIZE;
+        }else{
+            uint32_t triCount = node.leafIdx;
+            uint32_t leftFirst = (node.leftRight-1) & 0xFFFF; //!!!!!fix
+            //std::cout << "A" << std::endl;
+            for (uint32_t i = 0; i < triCount; ++i) {
+                uint32_t triIdx;
+                dcache_read(&triIdx, tri_idx_ptr + (leftFirst + i) * sizeof(uint32_t), sizeof(uint32_t));
+                
+                uint32_t tri_addr = tri_ptr + triIdx * TRI_SIZE;
 
-        //leaf
-        for (uint32_t i = 0; i < triCount; ++i) {
-            uint32_t triIdx;
-            dcache_read(&triIdx, tri_idx_ptr + (leftFirst + i) * sizeof(uint32_t), sizeof(uint32_t));
-            
-            uint32_t tri_addr = tri_ptr + triIdx * TRI_SIZE;
+                float v0_x, v0_y, v0_z, v1_x, v1_y, v1_z, v2_x, v2_y, v2_z;
+                read_vec3(tri_addr + 0 , v0_x, v0_y, v0_z);
+                read_vec3(tri_addr + 12, v1_x, v1_y, v1_z);
+                read_vec3(tri_addr + 24, v2_x, v2_y, v2_z);
 
-            float v0_x, v0_y, v0_z, v1_x, v1_y, v1_z, v2_x, v2_y, v2_z;
-            read_vec3(tri_addr + 0 , v0_x, v0_y, v0_z);
-            read_vec3(tri_addr + 12, v1_x, v1_y, v1_z);
-            read_vec3(tri_addr + 24, v2_x, v2_y, v2_z);
-
-            float bx, by, bz;
-            float d = ray_tri_intersect(
-                ray_buf.ray,
-                v0_x, v0_y, v0_z, 
-                v1_x, v1_y, v1_z, 
-                v2_x, v2_y, v2_z, 
-                bx, by, bz,
-                trace_data->pipeline_latency
-            );
-            
-            if (d != LARGE_FLOAT && d < ray_buf.hit.dist) {
-                ray_buf.hit.dist = d;
-                ray_buf.hit.bx = bx;
-                ray_buf.hit.by = by;
-                ray_buf.hit.bz = bz;
-                ray_buf.hit.blasIdx = blasIdx;
-                ray_buf.hit.triIdx = triIdx;
+                float bx, by, bz;
+                float d = ray_tri_intersect(
+                    ray_buf.ray,
+                    v0_x, v0_y, v0_z, 
+                    v1_x, v1_y, v1_z, 
+                    v2_x, v2_y, v2_z, 
+                    bx, by, bz, M,
+                    trace_data->pipeline_latency
+                );
+                
+                if (d != LARGE_FLOAT && d < ray_buf.hit.dist) {
+                    ray_buf.hit.dist = d;
+                    ray_buf.hit.bx = bx;
+                    ray_buf.hit.by = by;
+                    ray_buf.hit.bz = bz;
+                    ray_buf.hit.blasIdx = blasIdx;
+                    ray_buf.hit.triIdx = triIdx;
+                }
             }
+            node_ptr = pop(&terminate);
+            if(terminate) return;    
         }
-        bvh_node_ptr = pop(&terminate);
-        if(terminate) return;
     }
 }
 
@@ -675,7 +615,7 @@ uint32_t RTUnit::Impl::RestartTrailTraversal::pop(bool* terminate){
 
     uint32_t node_ptr;
     if(traversal_stack.empty()){
-        node_ptr = tlas_ptr;
+        node_ptr = qBvh_ptr;
         level = 1 << 31;
     }else{
         node_ptr = traversal_stack.pop();
@@ -684,17 +624,17 @@ uint32_t RTUnit::Impl::RestartTrailTraversal::pop(bool* terminate){
     return node_ptr;
 }
 
-
-bool RTUnit::Impl::RestartTrailTraversal::isLeaf(uint32_t node_ptr, uint32_t *leftFirst, uint32_t *triCount){
-    dcache_read(leftFirst, node_ptr + 3 * sizeof(float), sizeof(uint32_t));
-    dcache_read(triCount, node_ptr + 6 * sizeof(float) + sizeof(uint32_t), sizeof(uint32_t));
-    return (*triCount) != 0;
+bool RTUnit::Impl::RestartTrailTraversal::read_node(uint32_t node_ptr, BVHNode *node){
+    dcache_read(node, node_ptr, sizeof(BVHNode));
+    return !isLeaf(node);
 }
 
-bool RTUnit::Impl::RestartTrailTraversal::isTopLevelLeaf(uint32_t node_ptr, uint32_t *leftRight, uint32_t* blasIdx){
-    dcache_read(leftRight, node_ptr + 3 * sizeof(float), sizeof(uint32_t));
-    dcache_read(blasIdx, node_ptr + 6 * sizeof(float) + sizeof(uint32_t), sizeof(uint32_t));
-    return (*leftRight) == 0;
+bool RTUnit::Impl::RestartTrailTraversal::isTopLevel(BVHNode *node){
+    return (uint32_t)(node->imask) == 1;
+}
+
+bool RTUnit::Impl::RestartTrailTraversal::isLeaf(BVHNode *node){
+    return (isTopLevel(node) && node->leftRight == 0) || (!isTopLevel(node) && node->leafIdx != 0);
 }
 
 void RTUnit::Impl::RestartTrailTraversal::dcache_read(void* data, uint64_t addr, uint32_t size) {

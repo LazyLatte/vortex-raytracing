@@ -28,6 +28,25 @@ struct ray_hit_t {
   uint32_t triIdx = 0;  // triangle index
 };
 
+struct child_data_t {
+  uint8_t meta;
+  uint8_t qaabb[6];
+  uint8_t dummy;
+};
+
+// BVH quantized node struct
+//size : 40
+struct bvh_quantized_node_t {
+  float3_t origin;
+  int8_t ex, ey, ez;
+  uint8_t imask; //topLevel = 1, bottom = 0
+
+  uint32_t leftRight; //child_node_base_idx;
+  uint32_t leafIdx; //triangle_base_idx;
+  
+  child_data_t children[2];
+};
+
 // BVH node struct
 struct bvh_node_t {
   float3_t aabbMin;
@@ -127,6 +146,7 @@ typedef struct {
 	uint64_t triIdx_addr;
   uint64_t tex_addr;
 	uint64_t bvh_addr;
+  uint64_t qBvh_addr;
 	uint64_t blas_addr;
   uint64_t tlas_addr;
   uint32_t tlas_root;
