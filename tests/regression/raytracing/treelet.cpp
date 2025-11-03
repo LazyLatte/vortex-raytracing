@@ -207,10 +207,18 @@ void exportDOT(bvh_node_t* bvhBuffer, uint32_t rootIdx, std::ofstream& out, cons
     if(!root.isLeaf()){
         uint32_t left = root.leftFirst;
         uint32_t right = left + 1;
+        uint32_t k = right + 1;
+        uint32_t kk = k + 1;
         out << "  " << nodeName(&bvhBuffer[rootIdx]) << " -> " << nodeName(&bvhBuffer[left]) << ";\n";
         exportDOT(bvhBuffer, left, out, colors);
         out << "  " << nodeName(&bvhBuffer[rootIdx]) << " -> " << nodeName(&bvhBuffer[right]) << ";\n";
         exportDOT(bvhBuffer, right, out, colors);
+
+        out << "  " << nodeName(&bvhBuffer[rootIdx]) << " -> " << nodeName(&bvhBuffer[k]) << ";\n";
+        exportDOT(bvhBuffer, k, out, colors);
+
+        out << "  " << nodeName(&bvhBuffer[rootIdx]) << " -> " << nodeName(&bvhBuffer[kk]) << ";\n";
+        exportDOT(bvhBuffer, kk, out, colors);
     }
 }
 

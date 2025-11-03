@@ -9,6 +9,10 @@
 #define EPSILON 1e-6f
 
 namespace vortex {
+    struct StackEntry{
+        uint32_t node_ptr;
+        bool isLast;
+    };
 
     template<typename T>
     class ShortStack {

@@ -27,6 +27,11 @@ struct AABB {
   }
 };
 
+struct Split{
+  uint32_t axis, pos;
+  float cost;
+};
+
 // bounding volume hierarchy, to be used as BLAS
 class BVH {
 public:
@@ -46,11 +51,11 @@ public:
 private:
 
   void build();
-  void initializeNode(bvh_node_t &node, uint32_t first, uint32_t count);
-  void subdivide(bvh_node_t &node, const float3_t &centroidMin, const float3_t &centroidMax);
-  void updateNodeBounds(bvh_node_t &node, float3_t *centroidMin, float3_t *centroidMax) const;
-  uint32_t partitionTriangles(const bvh_node_t &node, uint32_t axis, uint32_t splitPos, const float3_t &centroidMin, const float3_t &centroidMax) const;
-  float findBestSplitPlane(const bvh_node_t &node, const float3_t &centroidMin, const float3_t &centroidMax, uint32_t *axis, uint32_t *splitPos) const;
+  //void initializeNode(bvh_node_t &node, uint32_t first, uint32_t count);
+  void subdivide(bvh_node_t &node);
+  void updateNodeBounds(bvh_node_t &node) const;
+  uint32_t partitionTriangles(const bvh_node_t &node, const Split &split) const;
+  Split findBestSplitPlane(const bvh_node_t &node) const;
   void quantize();
 
   uint32_t offset_ = 0;

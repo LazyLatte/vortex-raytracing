@@ -1685,9 +1685,16 @@ struct BVHNode {
   uint32_t leftRight; //child_node_base_idx;
   uint32_t leafIdx; //triangle_base_idx;
   
-  BVHChildData children[2];
+  BVHChildData children[4];
 };
 
 struct Triangle {
   float v0_x, v0_y, v0_z, v1_x, v1_y, v1_z, v2_x, v2_y, v2_z;
+};
+
+struct HH {
+    float dist;
+    uint32_t childIdx;
+
+    HH(float dist, uint32_t childIdx): dist(dist), childIdx(childIdx){}
 };

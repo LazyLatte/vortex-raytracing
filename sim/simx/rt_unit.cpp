@@ -4,14 +4,17 @@
 #include "core.h"
 #include <VX_config.h>
 #include <vector>
+#include <array>
 #include <iostream>
+#include <algorithm>
 #include <cmath>
+#define BVH_WIDTH 4
 #define BVH_STACK_SIZE 64
 
 #define TLAS_NODE_SIZE 32
 #define BLAS_NODE_SIZE 160
 #define BVH_NODE_SIZE 36
-#define QBVH_NODE_SIZE 40
+#define QBVH_NODE_SIZE 56
 #define TRI_SIZE 36
 
 #define MEM_QUEUE_SIZE 32
@@ -388,9 +391,9 @@ private:
             void traverse(RayBuffer &ray_buf, RTUnit::MemTraceData* trace_data);
 
         private:
-            void push(uint32_t node_ptr);
+            void push(uint32_t node_ptr, bool isLast);
             uint32_t pop(bool* terminate);
-            
+            int32_t findNextParentLevel();
             
             void dcache_read(void* data, uint64_t addr, uint32_t size);
             void read_vec3(uint32_t ptr, float &v0, float &v1, float &v2);
@@ -399,11 +402,11 @@ private:
             bool isLeaf(BVHNode *node);
             uint32_t tlas_ptr, blas_ptr, bvh_ptr, qBvh_ptr, tri_ptr, tri_idx_ptr;
 
-            uint32_t trail;
+            std::array<uint32_t, 32> trail;
             uint32_t level;
             uint32_t popLevel;
             
-            ShortStack<uint32_t> traversal_stack;
+            ShortStack<StackEntry> traversal_stack;
 
             RTUnit::Impl* rt_unit_;
     };
@@ -470,83 +473,135 @@ RTUnit::Impl::RestartTrailTraversal::RestartTrailTraversal(
     qBvh_ptr(qBvh_ptr),
     tri_ptr(tri_ptr), 
     tri_idx_ptr(tri_idx_ptr),
-    traversal_stack(5),
+    traversal_stack(999999),
     rt_unit_(rt_unit)
 {}
 
-
+bool cmp (HH ha, HH hb) { return (ha.dist > hb.dist); }
 void RTUnit::Impl::RestartTrailTraversal::traverse(RayBuffer &ray_buf, RTUnit::MemTraceData* trace_data){
-    level = 1 << 31;
+    level = 0;
     popLevel = 0;
 
-    trail = 0;
+    trail.fill(0);
 
-    uint32_t blasIdx;
-    uint32_t node_ptr = qBvh_ptr;
+    uint32_t blasIdx = 0;
+    uint32_t node_ptr = qBvh_ptr + sizeof(BVHNode);;
     bool terminate = false;
 
     BVHNode node;
-    float M[16];
+    float M[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     float I[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+
+
+
     while(1){
-        while(read_node(node_ptr, &node)){
-            bool topLevel = isTopLevel(&node);
-            float min_x, min_y, min_z, max_x, max_y, max_z;
+        //rya transform
+        while(read_node(node_ptr, &node)){            
+            //bool topLevel = isTopLevel(&node);
+            std::vector<HH> hits;
 
-            min_x = node.px + std::ldexp(float(node.children[0].qaabb[0]), node.ex);
-            min_y = node.py + std::ldexp(float(node.children[0].qaabb[1]), node.ey);
-            min_z = node.pz + std::ldexp(float(node.children[0].qaabb[2]), node.ez);
+            for(int i=0; i<BVH_WIDTH; i++){
+                float min_x = node.px + std::ldexp(float(node.children[i].qaabb[0]), node.ex);
+                float min_y = node.py + std::ldexp(float(node.children[i].qaabb[1]), node.ey);
+                float min_z = node.pz + std::ldexp(float(node.children[i].qaabb[2]), node.ez);
 
-            max_x = node.px + std::ldexp(float(node.children[0].qaabb[3]), node.ex);
-            max_y = node.py + std::ldexp(float(node.children[0].qaabb[4]), node.ey);
-            max_z = node.pz + std::ldexp(float(node.children[0].qaabb[5]), node.ez);
+                float max_x = node.px + std::ldexp(float(node.children[i].qaabb[3]), node.ex);
+                float max_y = node.py + std::ldexp(float(node.children[i].qaabb[4]), node.ey);
+                float max_z = node.pz + std::ldexp(float(node.children[i].qaabb[5]), node.ez);
 
-            float dLeft = ray_box_intersect(ray_buf.ray, min_x, min_y, min_z, max_x, max_y, max_z, 
-                topLevel ? I : M, trace_data->pipeline_latency);
+                float d = ray_box_intersect(ray_buf.ray, min_x, min_y, min_z, max_x, max_y, max_z, /*topLevel ? I :*/ M, trace_data->pipeline_latency);
 
-            min_x = node.px + std::ldexp(float(node.children[1].qaabb[0]), node.ex);
-            min_y = node.py + std::ldexp(float(node.children[1].qaabb[1]), node.ey);
-            min_z = node.pz + std::ldexp(float(node.children[1].qaabb[2]), node.ez);
-
-            max_x = node.px + std::ldexp(float(node.children[1].qaabb[3]), node.ex);
-            max_y = node.py + std::ldexp(float(node.children[1].qaabb[4]), node.ey);
-            max_z = node.pz + std::ldexp(float(node.children[1].qaabb[5]), node.ez);
-
-            float dRight = ray_box_intersect(ray_buf.ray, min_x, min_y, min_z, max_x, max_y, max_z, 
-                topLevel ? I : M, trace_data->pipeline_latency);
-
-            //--------------------
-
-            bool hitLeft  = (dLeft != LARGE_FLOAT) && (dLeft < ray_buf.hit.dist);
-            bool hitRight = (dRight != LARGE_FLOAT) && (dRight < ray_buf.hit.dist);
-
-            uint32_t left = node.leftRight & 0xFFFF;
-            uint32_t right = node.leftRight >> 16;
-
-            if(hitLeft && hitRight){
-                uint32_t near = (dLeft < dRight) ? left : right;
-                uint32_t far = near ^ left ^ right;
-                level >>= 1;
-
-                if(trail & level){
-                    node_ptr = qBvh_ptr + far * QBVH_NODE_SIZE;
-                }else{
-                    node_ptr = qBvh_ptr + near * QBVH_NODE_SIZE;
-                    push(qBvh_ptr + far * QBVH_NODE_SIZE);
+                if(d < ray_buf.hit.dist){
+                    hits.emplace_back(d, i);
                 }
-            }else if(hitLeft || hitRight){
-                level >>= 1;
-                if(level != popLevel){
-                    trail |= level;
-                    node_ptr = qBvh_ptr + (hitLeft ? left : right) * QBVH_NODE_SIZE;
-                }else{
-                    node_ptr = pop(&terminate);
-                    if(terminate) return;
+            }
+
+            std::sort(hits.begin(), hits.end(), cmp);
+
+            uint32_t k = trail[level];
+            // if(k == BVH_WIDTH){
+            //     for(int i=0; i<BVH_WIDTH - 1; i++){
+            //         if(hits.size() > 0){
+            //             hits.pop_back();
+            //         }
+                    
+            //     }
+            // }else{
+                for(int i=0; i<k; i++){
+                    if(hits.size() > 0){
+                        hits.pop_back();
+                    }
                 }
-            }else{
+            //}
+
+            //std::cout << "end trim" <<std::endl;
+            
+            if(hits.size() == 0){
                 node_ptr = pop(&terminate);
                 if(terminate) return;
+            }else{
+                HH h = hits.back();
+                hits.pop_back();
+
+                uint32_t nodeIdx = node.leftRight + h.childIdx;
+                node_ptr =  qBvh_ptr + nodeIdx * sizeof(BVHNode);
+                
+                if(hits.size() == 0){
+                    trail[level] = BVH_WIDTH;
+                }else{
+                    //mark
+                    for(auto iter = hits.begin(); iter != hits.end(); iter++){
+                        nodeIdx = node.leftRight + (*iter).childIdx;
+                        push(qBvh_ptr + nodeIdx * sizeof(BVHNode), (iter + 1) == hits.end());
+                    }
+                }
+                level++;
             }
+            // min_x = node.px + std::ldexp(float(node.children[1].qaabb[0]), node.ex);
+            // min_y = node.py + std::ldexp(float(node.children[1].qaabb[1]), node.ey);
+            // min_z = node.pz + std::ldexp(float(node.children[1].qaabb[2]), node.ez);
+
+            // max_x = node.px + std::ldexp(float(node.children[1].qaabb[3]), node.ex);
+            // max_y = node.py + std::ldexp(float(node.children[1].qaabb[4]), node.ey);
+            // max_z = node.pz + std::ldexp(float(node.children[1].qaabb[5]), node.ez);
+
+            // float dRight = ray_box_intersect(ray_buf.ray, min_x, min_y, min_z, max_x, max_y, max_z, 
+            //     /*topLevel ? I :*/ M, trace_data->pipeline_latency);
+
+            //--------------------
+            // bool hitLeft  = (dLeft != LARGE_FLOAT) && (dLeft < ray_buf.hit.dist);
+            // bool hitRight = (dRight != LARGE_FLOAT) && (dRight < ray_buf.hit.dist);
+
+            // uint32_t left = node.leftRight & 0xFFFF;
+            // uint32_t right = node.leftRight >> 16;
+
+ 
+            // uint32_t left = node.leftRight;
+            // uint32_t right = left + 1;
+            // if(hitLeft && hitRight){
+            //     uint32_t near = (dLeft < dRight) ? left : right;
+            //     uint32_t far = near ^ left ^ right;
+            //     level >>= 1;
+
+            //     if(trail & level){
+            //         node_ptr = qBvh_ptr + far * sizeof(BVHNode);
+            //     }else{
+            //         node_ptr = qBvh_ptr + near * sizeof(BVHNode);
+            //         push(qBvh_ptr + far * sizeof(BVHNode));
+            //     }
+            // }else if(hitLeft || hitRight){
+            //     level >>= 1;
+            //     if(level != popLevel){
+            //         trail |= level;
+            //         node_ptr = qBvh_ptr + (hitLeft ? left : right) * sizeof(BVHNode);
+            //     }else{
+            //         node_ptr = pop(&terminate);
+            //         if(terminate) return;
+            //     }
+            // }else{
+            //     node_ptr = pop(&terminate);
+            //     if(terminate) return;
+            // }
 
         }
         //std::cout << "Leaf: " << (uint32_t)node.imask << std::endl;
@@ -556,11 +611,11 @@ void RTUnit::Impl::RestartTrailTraversal::traverse(RayBuffer &ray_buf, RTUnit::M
             uint32_t blas_node_ptr = blas_ptr + blasIdx * BLAS_NODE_SIZE;
             dcache_read(&bvh_offset, blas_node_ptr + 32 * sizeof(float), sizeof(uint32_t));
             dcache_read(&M[0], blas_node_ptr + 16 * sizeof(float), 16 * sizeof(float));
-            node_ptr = qBvh_ptr + bvh_offset * QBVH_NODE_SIZE;
+            node_ptr = qBvh_ptr + bvh_offset * sizeof(BVHNode);
         }else{
+            
             uint32_t triCount = node.leafIdx;
-            uint32_t leftFirst = (node.leftRight-1) & 0xFFFF; //!!!!!fix
-            //std::cout << "A" << std::endl;
+            uint32_t leftFirst = (node.leftRight-1); //!!!!!fix
             for (uint32_t i = 0; i < triCount; ++i) {
                 uint32_t triIdx;
                 dcache_read(&triIdx, tri_idx_ptr + (leftFirst + i) * sizeof(uint32_t), sizeof(uint32_t));
@@ -591,6 +646,7 @@ void RTUnit::Impl::RestartTrailTraversal::traverse(RayBuffer &ray_buf, RTUnit::M
                     ray_buf.hit.triIdx = triIdx;
                 }
             }
+
             node_ptr = pop(&terminate);
             if(terminate) return;    
         }
@@ -598,30 +654,69 @@ void RTUnit::Impl::RestartTrailTraversal::traverse(RayBuffer &ray_buf, RTUnit::M
 }
 
 
-void RTUnit::Impl::RestartTrailTraversal::push(uint32_t node_ptr){
-    traversal_stack.push(node_ptr);
+void RTUnit::Impl::RestartTrailTraversal::push(uint32_t node_ptr, bool isLast){
+    StackEntry se;
+    se.node_ptr = node_ptr;
+    se.isLast = isLast;
+    traversal_stack.push(se);
+}
+
+int32_t RTUnit::Impl::RestartTrailTraversal::findNextParentLevel(){
+    for(int i=level-1; i>=0; i--){
+        if(trail[level] != BVH_WIDTH){
+            return i;
+        }
+    }
+    return -1;
 }
 
 uint32_t RTUnit::Impl::RestartTrailTraversal::pop(bool* terminate){
-    trail &= -level;
-    trail += level;
-    
-    uint32_t tmp = trail >> 1;
-    level = ((tmp - 1) ^ tmp) + 1;
+    int32_t parentLevel = findNextParentLevel();
+    if(parentLevel < 0){
+        *terminate = true;
+        return -1;
+    }
 
-    *terminate = trail >> 31;
-
-    popLevel = level;
+    trail[parentLevel]++;
+    for(int i=parentLevel+1; i<32; i++){
+        trail[i] = 0;
+    }
 
     uint32_t node_ptr;
     if(traversal_stack.empty()){
         node_ptr = qBvh_ptr;
-        level = 1 << 31;
+        level = 0;
     }else{
-        node_ptr = traversal_stack.pop();
+        StackEntry se = traversal_stack.pop();
+        node_ptr = se.node_ptr;
+        if(se.isLast){
+            trail[parentLevel] = BVH_WIDTH;
+        }
+
+        level = parentLevel + 1;
     }
 
     return node_ptr;
+
+    // trail &= -level;
+    // trail += level;
+    
+    // uint32_t tmp = trail >> 1;
+    // level = ((tmp - 1) ^ tmp) + 1;
+
+    // *terminate = trail >> 31;
+
+    // popLevel = level;
+
+    // uint32_t node_ptr;
+    // if(traversal_stack.empty()){
+    //     node_ptr = qBvh_ptr;
+    //     level = 1 << 31;
+    // }else{
+    //     node_ptr = traversal_stack.pop();
+    // }
+
+    // return node_ptr;
 }
 
 bool RTUnit::Impl::RestartTrailTraversal::read_node(uint32_t node_ptr, BVHNode *node){

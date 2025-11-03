@@ -44,15 +44,15 @@ struct bvh_quantized_node_t {
   uint32_t leftRight; //child_node_base_idx;
   uint32_t leafIdx; //triangle_base_idx;
   
-  child_data_t children[2];
+  child_data_t children[4];
 };
 
 // BVH node struct
 struct bvh_node_t {
-  float3_t aabbMin;
-  uint32_t leftFirst;
+  float3_t aabbMin, aabbMax;
+  float3_t centroidMin, centroidMax;
 
-  float3_t aabbMax;
+  uint32_t leftFirst;
   uint32_t triCount;
   uint32_t treeletID;
   bool isLeaf() const { return triCount != 0; }

@@ -1,5 +1,6 @@
 #include "bvh.h"
 #include "kdtree.h"
+#include "treelet.h"
 #include <utility>
 #include <cmath>
 #include <iostream>
@@ -16,7 +17,9 @@ BVH::BVH(const tri_t *triData, const float3_t *centroids, uint32_t triCount, bvh
   triCount_ = triCount;
   triData_ = triData;
   triIndices_ = triIndices;
+  
   this->build();
+  //visualize(bvhNodes_);
   this->quantize();
 }
 
@@ -27,50 +30,108 @@ BVH::~BVH() {
 void BVH::build() {
   // Recursive build staring at the root node
   bvh_node_t &root = bvhNodes_[nodeCount_++];
-  this->initializeNode(root, 0, triCount_);
+  root.leftFirst = 0;
+  root.triCount = triCount_;
+  this->subdivide(root);
 }
 
-void BVH::initializeNode(bvh_node_t &node, uint32_t first, uint32_t count) {
-  node.leftFirst = first;
-  node.triCount = count;
+// void BVH::initializeNode(bvh_node_t &node, uint32_t first, uint32_t count) {
+//   node.leftFirst = first;
+//   node.triCount = count;
 
-  float3_t centroidMin, centroidMax;
-  this->updateNodeBounds(node, &centroidMin, &centroidMax);
-  if (count > 1) {
-    this->subdivide(node, centroidMin, centroidMax);
+//   float3_t centroidMin, centroidMax;
+//   this->updateNodeBounds(node, &centroidMin, &centroidMax);
+//   if (count > 1) {
+//     this->subdivide(node, centroidMin, centroidMax);
+//   }
+// }
+
+void BVH::subdivide(bvh_node_t &node) {
+  this->updateNodeBounds(node);
+  if(node.triCount <= 1){
+    return;
   }
-}
 
-void BVH::subdivide(bvh_node_t &node, const float3_t &centroidMin, const float3_t &centroidMax) {
-  // determine split axis using Surface Area Heuristic (SAH)
-  uint32_t axis, splitPos;
-  float splitCost = findBestSplitPlane(node, centroidMin, centroidMax, &axis, &splitPos);
-  float nosplitCost = node.calculateNodeCost();
-  if (splitCost >= nosplitCost)
+
+  std::vector<bvh_node_t> clusters;
+  clusters.push_back(node);
+  int nMax = 4;
+  float totalCost = node.calculateNodeCost();
+
+  while (clusters.size() < nMax){
+   
+    Split bestSplit;
+    float bestCost = 99999.0f;
+    int bestIdx = -1;
+    for (int i = 0; i < clusters.size(); ++i) {
+       
+      Split s = findBestSplitPlane(clusters[i]);
+      
+      if (s.cost < bestCost) {
+        bestCost = s.cost; 
+        bestSplit = s; 
+        bestIdx = i;
+      }
+    }
+
+    if(bestIdx < 0) return;
+
+    totalCost -= clusters[bestIdx].calculateNodeCost();
+    totalCost += bestCost;
+    uint32_t leftCount = partitionTriangles(clusters[bestIdx], bestSplit);
+    uint32_t rightCount = clusters[bestIdx].triCount - leftCount;
+
+
+    if (leftCount == 0 || rightCount == 0) {
+      std::cout << "Edge case" << std::endl;
+      return;
+    }
+
+    
+    bvh_node_t L, R;
+    L.leftFirst = clusters[bestIdx].leftFirst;
+    L.triCount = leftCount;
+    R.leftFirst = clusters[bestIdx].leftFirst + leftCount;
+    R.triCount = rightCount;
+
+    clusters[bestIdx] = L;
+    clusters.push_back(R);
+
+  }
+
+  if(totalCost >= node.calculateNodeCost())
     return;
 
-  // partition triangles
-  uint32_t leftCount = partitionTriangles(node, axis, splitPos, centroidMin, centroidMax);
-  if (leftCount == 0 || leftCount == node.triCount)
-    return;
+  uint32_t Child0Idx = nodeCount_++;
+  uint32_t Child1Idx = nodeCount_++;
+  uint32_t Child2Idx = nodeCount_++;
+  uint32_t Child3Idx = nodeCount_++;
 
-  // create child nodes
-  uint32_t leftChildIdx = nodeCount_++;
-  uint32_t rightChildIdx = nodeCount_++;
+  bvh_node_t &Child0 = bvhNodes_[Child0Idx];
+  bvh_node_t &Child1 = bvhNodes_[Child1Idx];
+  bvh_node_t &Child2 = bvhNodes_[Child2Idx];
+  bvh_node_t &Child3 = bvhNodes_[Child3Idx];
 
-  auto &leftChild = bvhNodes_[leftChildIdx];
-  auto &rightChild = bvhNodes_[rightChildIdx];
+  Child0.leftFirst = clusters[0].leftFirst;
+  Child0.triCount  = clusters[0].triCount;
+  Child1.leftFirst = clusters[1].leftFirst;
+  Child1.triCount  = clusters[1].triCount;
+  Child2.leftFirst = clusters[2].leftFirst;
+  Child2.triCount  = clusters[2].triCount;
+  Child3.leftFirst = clusters[3].leftFirst;
+  Child3.triCount  = clusters[3].triCount;
 
-  this->initializeNode(leftChild, node.leftFirst, leftCount);
-  this->initializeNode(rightChild, node.leftFirst + leftCount, node.triCount - leftCount);
-
+  subdivide(Child0);
+  subdivide(Child1);
+  subdivide(Child2);
+  subdivide(Child3);
   // update parent's child nodes
-  node.leftFirst = leftChildIdx;
+  node.leftFirst = Child0Idx;
   node.triCount = 0; // mark as parent node
 }
 
-uint32_t BVH::partitionTriangles(const bvh_node_t &node, uint32_t axis, uint32_t splitPos, const float3_t &centroidMin, const float3_t &centroidMax) const {
-  float scale = BINS / (centroidMax[axis] - centroidMin[axis]);
+uint32_t BVH::partitionTriangles(const bvh_node_t &node, const Split &split) const {
+  float scale = BINS / (node.centroidMax[split.axis] - node.centroidMin[split.axis]);
   uint32_t *triPtr = triIndices_ + node.leftFirst;
 
   uint32_t i = 0;
@@ -79,8 +140,8 @@ uint32_t BVH::partitionTriangles(const bvh_node_t &node, uint32_t axis, uint32_t
   while (i <= j) {
     uint32_t triIdx = triPtr[i];
     auto &centroid = centroids_[triIdx];
-    uint32_t bin = clamp(int((centroid[axis] - centroidMin[axis]) * scale), 0, BINS - 1);
-    if (bin < splitPos) {
+    uint32_t bin = clamp(int((centroid[split.axis] - node.centroidMin[split.axis]) * scale), 0, BINS - 1);
+    if (bin < split.pos) {
       i++;
     } else {
       std::swap(triPtr[i], triPtr[j--]);
@@ -90,10 +151,12 @@ uint32_t BVH::partitionTriangles(const bvh_node_t &node, uint32_t axis, uint32_t
   return i;
 }
 
-float BVH::findBestSplitPlane(const bvh_node_t &node, const float3_t &centroidMin, const float3_t &centroidMax, uint32_t *axis, uint32_t *splitPos) const {
-  float bestCost = LARGE_FLOAT;
+Split BVH::findBestSplitPlane(const bvh_node_t &node) const {
+  //float bestCost = LARGE_FLOAT;
+  Split bestSplit;
+  bestSplit.cost = LARGE_FLOAT;
   for (uint32_t a = 0; a < 3; a++) {
-    float boundsMin = centroidMin[a], boundsMax = centroidMax[a];
+    float boundsMin = node.centroidMin[a], boundsMax = node.centroidMax[a];
     if (boundsMin == boundsMax)
       continue;
 
@@ -111,7 +174,9 @@ float BVH::findBestSplitPlane(const bvh_node_t &node, const float3_t &centroidMi
       auto triIdx = triIndices_[node.leftFirst + i];
       auto &triangle = triData_[triIdx];
       auto &centroid = centroids_[triIdx];
-      int binIdx = std::min(BINS - 1, (int)((centroid[a] - boundsMin) * scale));
+      int binIdx = (int)((centroid[a] - boundsMin) * scale);
+      binIdx = std::max(0, std::min((int)BINS - 1, binIdx));
+
       bin[binIdx].triCount++;
       bin[binIdx].bounds.grow(triangle.v0);
       bin[binIdx].bounds.grow(triangle.v1);
@@ -133,17 +198,17 @@ float BVH::findBestSplitPlane(const bvh_node_t &node, const float3_t &centroidMi
     scale = (boundsMax - boundsMin) / BINS;
     for (int i = 0; i < BINS - 1; i++) {
       const float planeCost = leftCountArea[i] + rightCountArea[i];
-      if (planeCost < bestCost) {
-        *axis = a;
-        *splitPos = i + 1;
-        bestCost = planeCost;
+      if (planeCost < bestSplit.cost) {
+        bestSplit.axis = a;
+        bestSplit.pos = i + 1;
+        bestSplit.cost = planeCost;
       }
     }
   }
-  return bestCost;
+  return bestSplit;
 }
 
-void BVH::updateNodeBounds(bvh_node_t &node, float3_t *centroidMin, float3_t *centroidMax) const {
+void BVH::updateNodeBounds(bvh_node_t &node) const {
   node.aabbMin = float3_t(LARGE_FLOAT);
   node.aabbMax = float3_t(-LARGE_FLOAT);
   auto centroid_min = float3_t(LARGE_FLOAT);
@@ -161,8 +226,8 @@ void BVH::updateNodeBounds(bvh_node_t &node, float3_t *centroidMin, float3_t *ce
     centroid_min = fminf(centroid_min, centroid);
     centroid_max = fmaxf(centroid_max, centroid);
   }
-  *centroidMin = centroid_min;
-  *centroidMax = centroid_max;
+  node.centroidMin = centroid_min;
+  node.centroidMax = centroid_max;
 }
 
 void BVH::quantize(){
@@ -171,9 +236,9 @@ void BVH::quantize(){
     bvh_node_t node = bvhNodes_[i];
 
     bvh_quantized_node_t qNode;
-    uint32_t l = node.leftFirst + offset_;
-    uint32_t r = l + 1;
-    qNode.leftRight = (r << 16) | l;
+    // uint32_t l = node.leftFirst + offset_;
+    // uint32_t r = l + 1;
+    qNode.leftRight = node.leftFirst + offset_; //(r << 16) | l;
     qNode.leafIdx = node.triCount;
     qNode.origin = node.aabbMin;
 
@@ -184,36 +249,66 @@ void BVH::quantize(){
     qNode.imask = 0;
 
     if(!node.isLeaf()){
-      uint32_t left = node.leftFirst;
-      uint32_t right = left + 1;
-      bvh_node_t leftNode = bvhNodes_[left];
-      bvh_node_t rightNode = bvhNodes_[right];
+      uint32_t c0 = node.leftFirst;
+      uint32_t c1 = c0 + 1;
+      uint32_t c2 = c1 + 1;
+      uint32_t c3 = c2 + 1;
+      bvh_node_t Child0 = bvhNodes_[c0];
+      bvh_node_t Child1 = bvhNodes_[c1];
+      bvh_node_t Child2 = bvhNodes_[c2];
+      bvh_node_t Child3 = bvhNodes_[c3];
 
-      child_data_t leftChild;
-      leftChild.meta = 0;
+      child_data_t QChild0, QChild1, QChild2, QChild3;
+      QChild0.meta = 0;
       
-      leftChild.qaabb[0] = static_cast<uint8_t>(std::floor((leftNode.aabbMin.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-      leftChild.qaabb[1] = static_cast<uint8_t>(std::floor((leftNode.aabbMin.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-      leftChild.qaabb[2] = static_cast<uint8_t>(std::floor((leftNode.aabbMin.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
+      QChild0.qaabb[0] = static_cast<uint8_t>(std::floor((Child0.aabbMin.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
+      QChild0.qaabb[1] = static_cast<uint8_t>(std::floor((Child0.aabbMin.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
+      QChild0.qaabb[2] = static_cast<uint8_t>(std::floor((Child0.aabbMin.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
 
-      leftChild.qaabb[3] = static_cast<uint8_t>(std::ceil((leftNode.aabbMax.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-      leftChild.qaabb[4] = static_cast<uint8_t>(std::ceil((leftNode.aabbMax.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-      leftChild.qaabb[5] = static_cast<uint8_t>(std::ceil((leftNode.aabbMax.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
+      QChild0.qaabb[3] = static_cast<uint8_t>(std::ceil((Child0.aabbMax.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
+      QChild0.qaabb[4] = static_cast<uint8_t>(std::ceil((Child0.aabbMax.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
+      QChild0.qaabb[5] = static_cast<uint8_t>(std::ceil((Child0.aabbMax.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
 
-      qNode.children[0] = leftChild;
+      qNode.children[0] = QChild0;
       
-      child_data_t rightChild;
-      rightChild.meta = 0;
+      //------------------------------
+      QChild1.meta = 0;
       
-      rightChild.qaabb[0] = static_cast<uint8_t>(std::floor((rightNode.aabbMin.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-      rightChild.qaabb[1] = static_cast<uint8_t>(std::floor((rightNode.aabbMin.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-      rightChild.qaabb[2] = static_cast<uint8_t>(std::floor((rightNode.aabbMin.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
+      QChild1.qaabb[0] = static_cast<uint8_t>(std::floor((Child1.aabbMin.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
+      QChild1.qaabb[1] = static_cast<uint8_t>(std::floor((Child1.aabbMin.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
+      QChild1.qaabb[2] = static_cast<uint8_t>(std::floor((Child1.aabbMin.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
 
-      rightChild.qaabb[3] = static_cast<uint8_t>(std::ceil((rightNode.aabbMax.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-      rightChild.qaabb[4] = static_cast<uint8_t>(std::ceil((rightNode.aabbMax.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-      rightChild.qaabb[5] = static_cast<uint8_t>(std::ceil((rightNode.aabbMax.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
+      QChild1.qaabb[3] = static_cast<uint8_t>(std::ceil((Child1.aabbMax.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
+      QChild1.qaabb[4] = static_cast<uint8_t>(std::ceil((Child1.aabbMax.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
+      QChild1.qaabb[5] = static_cast<uint8_t>(std::ceil((Child1.aabbMax.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
 
-      qNode.children[1] = rightChild;
+      qNode.children[1] = QChild1;
+
+      //------------------------------
+      QChild2.meta = 0;
+      
+      QChild2.qaabb[0] = static_cast<uint8_t>(std::floor((Child2.aabbMin.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
+      QChild2.qaabb[1] = static_cast<uint8_t>(std::floor((Child2.aabbMin.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
+      QChild2.qaabb[2] = static_cast<uint8_t>(std::floor((Child2.aabbMin.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
+
+      QChild2.qaabb[3] = static_cast<uint8_t>(std::ceil((Child2.aabbMax.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
+      QChild2.qaabb[4] = static_cast<uint8_t>(std::ceil((Child2.aabbMax.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
+      QChild2.qaabb[5] = static_cast<uint8_t>(std::ceil((Child2.aabbMax.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
+
+      qNode.children[2] = QChild2;
+
+      //------------------------------
+      QChild3.meta = 0;
+      
+      QChild3.qaabb[0] = static_cast<uint8_t>(std::floor((Child3.aabbMin.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
+      QChild3.qaabb[1] = static_cast<uint8_t>(std::floor((Child3.aabbMin.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
+      QChild3.qaabb[2] = static_cast<uint8_t>(std::floor((Child3.aabbMin.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
+
+      QChild3.qaabb[3] = static_cast<uint8_t>(std::ceil((Child3.aabbMax.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
+      QChild3.qaabb[4] = static_cast<uint8_t>(std::ceil((Child3.aabbMax.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
+      QChild3.qaabb[5] = static_cast<uint8_t>(std::ceil((Child3.aabbMax.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
+
+      qNode.children[3] = QChild3;
     }
 
     bvhQNodes_[i] = qNode;
