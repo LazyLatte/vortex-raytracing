@@ -35,7 +35,7 @@ struct Split{
 // bounding volume hierarchy, to be used as BLAS
 class BVH {
 public:
-  BVH(const tri_t *triData, const float3_t *centroids, uint32_t triCount, bvh_node_t* bvh_nodes, bvh_quantized_node_t *bvh_qnodes, uint32_t *triIndices, uint32_t offset);
+  BVH(const tri_t *triData, const float3_t *centroids, uint32_t triCount, bvh_node_t* bvh_nodes, bvh_quantized_node_t *bvh_qnodes, uint32_t *triIndices);
   ~BVH();
 
   auto &aabbMin() const { return bvhNodes_[0].aabbMin; }
@@ -58,7 +58,6 @@ private:
   Split findBestSplitPlane(const bvh_node_t &node) const;
   void quantize();
 
-  uint32_t offset_ = 0;
   uint32_t triCount_ = 0;        // number of triangles
   const tri_t *triData_ = nullptr; // pointer to mesh vertices
   const float3_t *centroids_ = nullptr; // triangle centroids
@@ -72,12 +71,13 @@ private:
 class TLAS {
 public:
   TLAS() = default;
-  TLAS(const std::vector<BVH*>& bvh_list, const blas_node_t *blas_nodes, bvh_quantized_node_t *bvh_qnodes);
+  TLAS(const std::vector<BVH*>& bvh_list, const blas_node_t *blas_nodes);
   ~TLAS();
 
   void build();
 
   auto &nodes() const { return tlasNodes_; }
+  auto &qnodes() const { return tlasQNodes_; }
 
   uint32_t rootIndex() const { return rootIndex_; }
   
@@ -90,8 +90,8 @@ private:
   
   const std::vector<BVH*>& bvh_list_;
   const blas_node_t *blas_nodes_ = nullptr;
-  bvh_quantized_node_t *bvhQNodes_ = nullptr;
   std::vector<tlas_node_t> tlasNodes_;
+  std::vector<bvh_quantized_node_t> tlasQNodes_;
   std::vector<uint32_t> nodeIndices_;
   std::vector<uint32_t> triCounts_;
   uint32_t blasCount_ = 0;

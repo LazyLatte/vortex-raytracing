@@ -20,6 +20,7 @@ public:
   void build();
 
   const auto &tlas_nodes() const { return tlas_->nodes(); }
+  const auto &tlas_qnodes() const { return tlas_->qnodes(); }
   uint32_t tlas_root() const { return tlas_->rootIndex(); }
 
   const auto &blas_nodes() const { return blas_nodes_; }

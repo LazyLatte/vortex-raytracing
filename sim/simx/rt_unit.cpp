@@ -404,7 +404,7 @@ private:
 
             std::array<uint32_t, 32> trail;
             uint32_t level;
-            uint32_t popLevel;
+            //uint32_t popLevel;
             
             ShortStack<StackEntry> traversal_stack;
 
@@ -473,26 +473,23 @@ RTUnit::Impl::RestartTrailTraversal::RestartTrailTraversal(
     qBvh_ptr(qBvh_ptr),
     tri_ptr(tri_ptr), 
     tri_idx_ptr(tri_idx_ptr),
-    traversal_stack(999999),
+    traversal_stack(3),
     rt_unit_(rt_unit)
 {}
 
 bool cmp (HH ha, HH hb) { return (ha.dist > hb.dist); }
 void RTUnit::Impl::RestartTrailTraversal::traverse(RayBuffer &ray_buf, RTUnit::MemTraceData* trace_data){
     level = 0;
-    popLevel = 0;
-
     trail.fill(0);
 
     uint32_t blasIdx = 0;
-    uint32_t node_ptr = qBvh_ptr + sizeof(BVHNode);;
+    uint32_t base_ptr = tlas_ptr;
+    uint32_t node_ptr = tlas_ptr;
     bool terminate = false;
 
     BVHNode node;
     float M[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     float I[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-
-
 
     while(1){
         //rya transform
@@ -519,22 +516,12 @@ void RTUnit::Impl::RestartTrailTraversal::traverse(RayBuffer &ray_buf, RTUnit::M
             std::sort(hits.begin(), hits.end(), cmp);
 
             uint32_t k = trail[level];
-            // if(k == BVH_WIDTH){
-            //     for(int i=0; i<BVH_WIDTH - 1; i++){
-            //         if(hits.size() > 0){
-            //             hits.pop_back();
-            //         }
-                    
-            //     }
-            // }else{
-                for(int i=0; i<k; i++){
-                    if(hits.size() > 0){
-                        hits.pop_back();
-                    }
+            uint32_t dropCount = (k == BVH_WIDTH) ? hits.size() - 1 : k;
+            for(int i=0; i<dropCount; i++){
+                if(hits.size() > 0){
+                    hits.pop_back();
                 }
-            //}
-
-            //std::cout << "end trim" <<std::endl;
+            }
             
             if(hits.size() == 0){
                 node_ptr = pop(&terminate);
@@ -544,7 +531,7 @@ void RTUnit::Impl::RestartTrailTraversal::traverse(RayBuffer &ray_buf, RTUnit::M
                 hits.pop_back();
 
                 uint32_t nodeIdx = node.leftRight + h.childIdx;
-                node_ptr =  qBvh_ptr + nodeIdx * sizeof(BVHNode);
+                node_ptr = base_ptr + nodeIdx * sizeof(BVHNode);
                 
                 if(hits.size() == 0){
                     trail[level] = BVH_WIDTH;
@@ -552,59 +539,14 @@ void RTUnit::Impl::RestartTrailTraversal::traverse(RayBuffer &ray_buf, RTUnit::M
                     //mark
                     for(auto iter = hits.begin(); iter != hits.end(); iter++){
                         nodeIdx = node.leftRight + (*iter).childIdx;
-                        push(qBvh_ptr + nodeIdx * sizeof(BVHNode), (iter + 1) == hits.end());
+                        push(base_ptr + nodeIdx * sizeof(BVHNode), iter == hits.begin());
                     }
                 }
                 level++;
             }
-            // min_x = node.px + std::ldexp(float(node.children[1].qaabb[0]), node.ex);
-            // min_y = node.py + std::ldexp(float(node.children[1].qaabb[1]), node.ey);
-            // min_z = node.pz + std::ldexp(float(node.children[1].qaabb[2]), node.ez);
-
-            // max_x = node.px + std::ldexp(float(node.children[1].qaabb[3]), node.ex);
-            // max_y = node.py + std::ldexp(float(node.children[1].qaabb[4]), node.ey);
-            // max_z = node.pz + std::ldexp(float(node.children[1].qaabb[5]), node.ez);
-
-            // float dRight = ray_box_intersect(ray_buf.ray, min_x, min_y, min_z, max_x, max_y, max_z, 
-            //     /*topLevel ? I :*/ M, trace_data->pipeline_latency);
-
-            //--------------------
-            // bool hitLeft  = (dLeft != LARGE_FLOAT) && (dLeft < ray_buf.hit.dist);
-            // bool hitRight = (dRight != LARGE_FLOAT) && (dRight < ray_buf.hit.dist);
-
-            // uint32_t left = node.leftRight & 0xFFFF;
-            // uint32_t right = node.leftRight >> 16;
-
- 
-            // uint32_t left = node.leftRight;
-            // uint32_t right = left + 1;
-            // if(hitLeft && hitRight){
-            //     uint32_t near = (dLeft < dRight) ? left : right;
-            //     uint32_t far = near ^ left ^ right;
-            //     level >>= 1;
-
-            //     if(trail & level){
-            //         node_ptr = qBvh_ptr + far * sizeof(BVHNode);
-            //     }else{
-            //         node_ptr = qBvh_ptr + near * sizeof(BVHNode);
-            //         push(qBvh_ptr + far * sizeof(BVHNode));
-            //     }
-            // }else if(hitLeft || hitRight){
-            //     level >>= 1;
-            //     if(level != popLevel){
-            //         trail |= level;
-            //         node_ptr = qBvh_ptr + (hitLeft ? left : right) * sizeof(BVHNode);
-            //     }else{
-            //         node_ptr = pop(&terminate);
-            //         if(terminate) return;
-            //     }
-            // }else{
-            //     node_ptr = pop(&terminate);
-            //     if(terminate) return;
-            // }
 
         }
-        //std::cout << "Leaf: " << (uint32_t)node.imask << std::endl;
+
         if(isTopLevel(&node)){
             blasIdx = node.leafIdx;
             uint32_t bvh_offset;
@@ -612,10 +554,11 @@ void RTUnit::Impl::RestartTrailTraversal::traverse(RayBuffer &ray_buf, RTUnit::M
             dcache_read(&bvh_offset, blas_node_ptr + 32 * sizeof(float), sizeof(uint32_t));
             dcache_read(&M[0], blas_node_ptr + 16 * sizeof(float), 16 * sizeof(float));
             node_ptr = qBvh_ptr + bvh_offset * sizeof(BVHNode);
+            base_ptr = qBvh_ptr;
         }else{
             
             uint32_t triCount = node.leafIdx;
-            uint32_t leftFirst = (node.leftRight-1); //!!!!!fix
+            uint32_t leftFirst = node.leftRight;
             for (uint32_t i = 0; i < triCount; ++i) {
                 uint32_t triIdx;
                 dcache_read(&triIdx, tri_idx_ptr + (leftFirst + i) * sizeof(uint32_t), sizeof(uint32_t));
@@ -663,7 +606,7 @@ void RTUnit::Impl::RestartTrailTraversal::push(uint32_t node_ptr, bool isLast){
 
 int32_t RTUnit::Impl::RestartTrailTraversal::findNextParentLevel(){
     for(int i=level-1; i>=0; i--){
-        if(trail[level] != BVH_WIDTH){
+        if(trail[i] != BVH_WIDTH){
             return i;
         }
     }
@@ -672,20 +615,24 @@ int32_t RTUnit::Impl::RestartTrailTraversal::findNextParentLevel(){
 
 uint32_t RTUnit::Impl::RestartTrailTraversal::pop(bool* terminate){
     int32_t parentLevel = findNextParentLevel();
+
     if(parentLevel < 0){
         *terminate = true;
         return -1;
     }
 
     trail[parentLevel]++;
+
     for(int i=parentLevel+1; i<32; i++){
         trail[i] = 0;
     }
 
     uint32_t node_ptr;
     if(traversal_stack.empty()){
-        node_ptr = qBvh_ptr;
+        node_ptr = tlas_ptr;
+        //base_ptr...
         level = 0;
+        //std::cout << "Restart..." << std::endl;
     }else{
         StackEntry se = traversal_stack.pop();
         node_ptr = se.node_ptr;
@@ -697,26 +644,6 @@ uint32_t RTUnit::Impl::RestartTrailTraversal::pop(bool* terminate){
     }
 
     return node_ptr;
-
-    // trail &= -level;
-    // trail += level;
-    
-    // uint32_t tmp = trail >> 1;
-    // level = ((tmp - 1) ^ tmp) + 1;
-
-    // *terminate = trail >> 31;
-
-    // popLevel = level;
-
-    // uint32_t node_ptr;
-    // if(traversal_stack.empty()){
-    //     node_ptr = qBvh_ptr;
-    //     level = 1 << 31;
-    // }else{
-    //     node_ptr = traversal_stack.pop();
-    // }
-
-    // return node_ptr;
 }
 
 bool RTUnit::Impl::RestartTrailTraversal::read_node(uint32_t node_ptr, BVHNode *node){

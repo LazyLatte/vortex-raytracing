@@ -106,7 +106,7 @@ int Tracer::init(const char *kernel_file, const char* model_file, uint32_t mesh_
     kernel_arg_.triIdx_addr = (uint64_t)scene_->triIdx_buf().data();
     kernel_arg_.bvh_addr = (uint64_t)scene_->bvh_nodes().data();
     kernel_arg_.qBvh_addr = (uint64_t)scene_->bvh_quantized_nodes().data();
-    kernel_arg_.tlas_addr = (uint64_t)scene_->tlas_nodes().data();
+    kernel_arg_.tlas_addr = (uint64_t)scene_->tlas_qnodes().data();
     kernel_arg_.blas_addr = (uint64_t)scene_->blas_nodes().data();
     kernel_arg_.tex_addr = (uint64_t)scene_->tex_buf().data();
   } else {
@@ -128,7 +128,7 @@ int Tracer::init(const char *kernel_file, const char* model_file, uint32_t mesh_
     RT_CHECK(vx_mem_address(idxBuffer_, &kernel_arg_.triIdx_addr));
 
     // allocate tlas buffer
-    RT_CHECK(vx_mem_alloc(device_, scene_->tlas_nodes().size() * sizeof(tlas_node_t), VX_MEM_READ, &tlasBuffer_));
+    RT_CHECK(vx_mem_alloc(device_, scene_->tlas_qnodes().size() * sizeof(bvh_quantized_node_t), VX_MEM_READ, &tlasBuffer_));
     RT_CHECK(vx_mem_address(tlasBuffer_, &kernel_arg_.tlas_addr));
 
     // allocate inst buffer
@@ -210,7 +210,7 @@ int Tracer::setup(float camera_vfov, float zoom, float3_t light_pos, float3_t li
   RT_CHECK(vx_copy_to_dev(idxBuffer_, scene_->triIdx_buf().data(), 0, scene_->triIdx_buf().size() * sizeof(uint32_t)));
 
   // upload tlas data
-  RT_CHECK(vx_copy_to_dev(tlasBuffer_, scene_->tlas_nodes().data(), 0, scene_->tlas_nodes().size() * sizeof(tlas_node_t)));
+  RT_CHECK(vx_copy_to_dev(tlasBuffer_, scene_->tlas_qnodes().data(), 0, scene_->tlas_qnodes().size() * sizeof(bvh_quantized_node_t)));
 
   // upload inst data
   RT_CHECK(vx_copy_to_dev(blasBuffer_, scene_->blas_nodes().data(), 0, scene_->blas_nodes().size() * sizeof(blas_node_t)));
