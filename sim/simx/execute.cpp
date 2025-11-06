@@ -1471,17 +1471,12 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
       auto rtuArgs = std::get<IntrRtuArgs>(instrArgs);
       switch (rtu_type) {
       case RtuType::Trace: {
-        auto trace_data = std::make_shared<RTUnit::MemTraceData>(num_threads);
+        auto trace_data = std::make_shared<RtuTraceData>(num_threads);
         trace->data = trace_data;
 
-        for (uint32_t t = thread_start; t < num_threads; ++t) {
-          if (!warp.tmask.test(t))
-            continue;
-          float dist = rt_unit_->traverse(wid, t, trace_data.get());
-          rd_data[t].i = *reinterpret_cast<uint32_t*>(&dist);
-          
-        }
+        rt_unit_->traverse(wid, rd_data, trace_data.get());
         rd_write = true;
+        
       } break;
       default:
         std::abort();

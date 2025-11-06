@@ -42,6 +42,7 @@ endif
 # Add RTU extension sources
 ifneq ($(findstring -DEXT_RTU_ENABLE, $(CONFIGS)),)
   	SRCS += $(SRC_DIR)/rt_unit.cpp
+	SRCS += $(SRC_DIR)/rt_traversal.cpp
 endif
 
 # Debugging

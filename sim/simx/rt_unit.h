@@ -5,20 +5,12 @@
 #include "instr_trace.h"
 #include <vector>
 
-
 namespace vortex {
 
 class Core;
 
 class RTUnit : public SimObject<RTUnit> {
 public:
-  struct MemTraceData : public ITraceData {
-    using Ptr = std::shared_ptr<MemTraceData>;
-    std::vector<mem_addr_size_t> mem_addrs;
-    uint32_t pipeline_latency; 
-    MemTraceData(uint32_t num_threads = 0) : mem_addrs(num_threads) {}
-  };
-
 	struct PerfStats {
     uint64_t stalls;
     uint64_t reads;
@@ -54,7 +46,7 @@ public:
   void dcache_read(void* data, uint64_t addr, uint32_t size);
   void dcache_write(const void* data, uint64_t addr, uint32_t size);
 
-  float traverse(uint32_t wid, uint32_t tid, MemTraceData* trace_data);
+  void traverse(uint32_t wid, std::vector<reg_data_t>& rd_data, RtuTraceData* trace_data);
   const PerfStats& perf_stats() const;
 private:
 	class Impl;

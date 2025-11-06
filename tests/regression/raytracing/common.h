@@ -31,18 +31,16 @@ struct ray_hit_t {
 struct child_data_t {
   uint8_t meta;
   uint8_t qaabb[6];
-  uint8_t dummy;
 };
 
 // BVH quantized node struct
-//size : 40
 struct bvh_quantized_node_t {
   float3_t origin;
   int8_t ex, ey, ez;
   uint8_t imask; //topLevel = 1, bottom = 0
 
-  uint32_t leftRight; //child_node_base_idx;
-  uint32_t leafIdx; //triangle_base_idx;
+  uint32_t leftRight;
+  uint32_t leafIdx;
   
   child_data_t children[4];
 };

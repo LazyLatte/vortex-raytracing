@@ -1,18 +1,13 @@
 #pragma once
 #include "rt_ray_buffer.h"
+#include "rt_types.h"
 #include <algorithm>
-#include <math.h> 
-#define LARGE_FLOAT 1e30f
+#include <cmath> 
+
 #define EPSILON 1e-6f
 
-#define TRANSFORM_LATENCY 6
-#define RAY_BOX_INTERSECTION_LATENCY 24
-#define RAY_TRIANGLE_INTERSECTION_LATENCY 16
-
 namespace vortex {
-    Ray ray_transform(Ray ray, float *transform_matrix){     
-        //latency += TRANSFORM_LATENCY;
-
+    Ray ray_transform(const Ray &ray, float *transform_matrix){
         float m00 = transform_matrix[0];
         float m01 = transform_matrix[1];
         float m02 = transform_matrix[2];
@@ -44,16 +39,10 @@ namespace vortex {
         return transformed_ray;
     }
 
-    float ray_tri_intersect(
-        Ray ray_,
-        float v0_x, float v0_y, float v0_z,
-        float v1_x, float v1_y, float v1_z,
-        float v2_x, float v2_y, float v2_z,
-        float &bx, float &by, float &bz,
-        float *m, uint32_t& latency
-    ){
-        Ray ray = ray_transform(ray_, m);
-        latency += RAY_TRIANGLE_INTERSECTION_LATENCY;
+    float ray_tri_intersect(const Ray &ray, const Triangle &tri, float &bx, float &by, float &bz){
+        float v0_x = tri.v0_x, v0_y = tri.v0_y, v0_z = tri.v0_z;
+        float v1_x = tri.v1_x, v1_y = tri.v1_y, v1_z = tri.v1_z;
+        float v2_x = tri.v2_x, v2_y = tri.v2_y, v2_z = tri.v2_z;
 
         float ro_x = ray.ro_x, ro_y = ray.ro_y, ro_z = ray.ro_z;
         float rd_x = ray.rd_x, rd_y = ray.rd_y, rd_z = ray.rd_z;
@@ -105,14 +94,8 @@ namespace vortex {
         return tf;
     }
 
-    float ray_box_intersect(
-        Ray ray_,
-        float min_x, float min_y, float min_z, 
-        float max_x, float max_y, float max_z,
-        float *m, uint32_t& latency
-    ){
-        Ray ray = ray_transform(ray_, m);
-        latency += RAY_BOX_INTERSECTION_LATENCY;
+    float ray_box_intersect(const Ray &ray, float min_x, float min_y, float min_z, float max_x, float max_y, float max_z){
+
         float ro_x = ray.ro_x, ro_y = ray.ro_y, ro_z = ray.ro_z;
         float rd_x = ray.rd_x, rd_y = ray.rd_y, rd_z = ray.rd_z;
         float idir_x, idir_y, idir_z, tmin, tmax, tx1, tx2, ty1, ty2, tz1, tz2;
