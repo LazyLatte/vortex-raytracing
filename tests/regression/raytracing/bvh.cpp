@@ -216,7 +216,7 @@ void BVH::updateNodeBounds(bvh_node_t &node) const {
 }
 
 void BVH::quantize(){
-  std::cout << "Quantization starts ... " << std::endl;
+  std::cout << "BVH Quantization starts ... " << std::endl;
   for(int i=0; i<nodeCount_; i++){
     bvh_node_t node = bvhNodes_[i];
 
@@ -254,13 +254,12 @@ void BVH::quantize(){
 
     bvhQNodes_[i] = qNode;
   }
-  std::cout << "Quantization ends ... " << nodeCount_ << std::endl;
+  std::cout << "BVH Quantization ends ... (#node=" << nodeCount_ << ")" << std::endl;
 }
 
 // TLAS implementation
 
-TLAS::TLAS(const std::vector<BVH *> &bvh_list, const blas_node_t *blas_nodes)
-    : bvh_list_(bvh_list) {
+TLAS::TLAS(const std::vector<BVH *> &bvh_list, const blas_node_t *blas_nodes) : bvh_list_(bvh_list) {
   blas_nodes_ = blas_nodes;
   blasCount_ = bvh_list.size();
   nodeCount_ = 2 * blasCount_ - 1;
@@ -478,39 +477,9 @@ void TLAS::quantize(){
 
         qNode.children[k] = qChild;
       }
-      // uint32_t left = node.leftRight & 0xFFFF;
-      // uint32_t right = node.leftRight >> 16;
-      // tlas_node_t leftNode = tlasNodes_[left];
-      // tlas_node_t rightNode = tlasNodes_[right];
-
-      // child_data_t leftChild;
-      // leftChild.meta = 0;
-      
-      // leftChild.qaabb[0] = static_cast<uint8_t>(std::floor((leftNode.aabbMin.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-      // leftChild.qaabb[1] = static_cast<uint8_t>(std::floor((leftNode.aabbMin.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-      // leftChild.qaabb[2] = static_cast<uint8_t>(std::floor((leftNode.aabbMin.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
-
-      // leftChild.qaabb[3] = static_cast<uint8_t>(std::ceil((leftNode.aabbMax.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-      // leftChild.qaabb[4] = static_cast<uint8_t>(std::ceil((leftNode.aabbMax.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-      // leftChild.qaabb[5] = static_cast<uint8_t>(std::ceil((leftNode.aabbMax.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
-
-      // qNode.children[0] = leftChild;
-      
-      // child_data_t rightChild;
-      // rightChild.meta = 0;
-      
-      // rightChild.qaabb[0] = static_cast<uint8_t>(std::floor((rightNode.aabbMin.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-      // rightChild.qaabb[1] = static_cast<uint8_t>(std::floor((rightNode.aabbMin.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-      // rightChild.qaabb[2] = static_cast<uint8_t>(std::floor((rightNode.aabbMin.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
-
-      // rightChild.qaabb[3] = static_cast<uint8_t>(std::ceil((rightNode.aabbMax.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-      // rightChild.qaabb[4] = static_cast<uint8_t>(std::ceil((rightNode.aabbMax.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-      // rightChild.qaabb[5] = static_cast<uint8_t>(std::ceil((rightNode.aabbMax.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
-
-      // qNode.children[1] = rightChild;
     }
 
     tlasQNodes_[i] = qNode;
   }
-  std::cout << "TLAS Quantization ends ... " << nodeCount_ << std::endl;
+  std::cout << "TLAS Quantization ends ... (#node=" << nodeCount_ << ")" << std::endl;
 }
