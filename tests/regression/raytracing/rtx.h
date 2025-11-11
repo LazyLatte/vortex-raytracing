@@ -33,14 +33,14 @@ ray_t GenerateRay(uint32_t x, uint32_t y, const kernel_arg_t *__UNIFORM__ arg) {
 }
 
 float3_t Trace(const ray_t &ray, const kernel_arg_t *__UNIFORM__ arg) {
-  auto tri_ptr = reinterpret_cast<const tri_t *>(arg->tri_addr);
-  auto bvh_ptr = reinterpret_cast<const bvh_node_t *>(arg->bvh_addr);
-  auto qBvh_ptr = reinterpret_cast<const bvh_quantized_node_t *>(arg->qBvh_addr);
-  auto triIdx_ptr = reinterpret_cast<const uint32_t *>(arg->triIdx_addr);
-  auto tlas_ptr = reinterpret_cast<const tlas_node_t *>(arg->tlas_addr);
-  auto blas_ptr = reinterpret_cast<const blas_node_t *>(arg->blas_addr);
-  auto triEx_ptr = reinterpret_cast<const tri_ex_t *>(arg->triEx_addr);
-  auto tex_ptr = reinterpret_cast<const uint8_t *>(arg->tex_addr);
+  // auto tri_ptr = reinterpret_cast<const tri_t *>(arg->tri_addr);
+  // auto bvh_ptr = reinterpret_cast<const bvh_node_t *>(arg->bvh_addr);
+  // auto qBvh_ptr = reinterpret_cast<const bvh_quantized_node_t *>(arg->qBvh_addr);
+  // auto triIdx_ptr = reinterpret_cast<const uint32_t *>(arg->triIdx_addr);
+  // auto tlas_ptr = reinterpret_cast<const tlas_node_t *>(arg->tlas_addr);
+  // auto blas_ptr = reinterpret_cast<const blas_node_t *>(arg->blas_addr);
+  // auto triEx_ptr = reinterpret_cast<const tri_ex_t *>(arg->triEx_addr);
+  // auto tex_ptr = reinterpret_cast<const uint8_t *>(arg->tex_addr);
 
   ray_t cur_ray = ray;
 

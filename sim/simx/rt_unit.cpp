@@ -110,10 +110,9 @@ public:
             }
 
             input.pop();
-        }
 
-        //Question: pipline latency?
-        //simobject_->Outputs.at(iw).push(trace, pipeline_latency);
+            //simobject_->Outputs.at(iw).push(trace, trace_data->pipeline_latency);
+        }
     }
 
     const PerfStats& perf_stats() const {
