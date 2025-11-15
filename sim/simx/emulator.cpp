@@ -198,8 +198,8 @@ instr_trace_t* Emulator::step() {
   #endif
 
     // Fetch
-    auto instr_code = this->fetch(scheduled_warp, uuid);
-
+    auto instr_word = this->fetch(scheduled_warp, uuid);
+    auto instr_code = this->decompress(instr_word);
     // decode
     this->decode(instr_code, scheduled_warp, uuid);
   } else {

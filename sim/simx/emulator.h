@@ -114,6 +114,8 @@ private:
 
   uint32_t fetch(uint32_t wid, uint64_t uuid);
 
+  uint32_t decompress(uint32_t instr_word);
+
   void decode(uint32_t code, uint32_t wid, uint64_t uuid);
 
   instr_trace_t* execute(const Instr &instr, uint32_t wid);
