@@ -62,7 +62,9 @@ struct warp_t {
   Word                              PC;
   Byte                              fcsr;
   uint32_t                          uuid;
-
+  uint32_t                          instr32;
+  uint32_t                          instr_size;
+  bool                              has_valid_fetch_word = false;
   warp_t(uint32_t num_threads);
 
   void reset(uint64_t startup_addr);
@@ -114,7 +116,7 @@ private:
 
   uint32_t fetch(uint32_t wid, uint64_t uuid);
 
-  uint32_t decompress(uint32_t instr_word);
+  DecompResult decompress(uint32_t word);
 
   void decode(uint32_t code, uint32_t wid, uint64_t uuid);
 

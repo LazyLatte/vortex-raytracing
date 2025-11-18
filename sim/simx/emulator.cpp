@@ -197,14 +197,38 @@ instr_trace_t* Emulator::step() {
     }
   #endif
 
-    // Fetch
-    // if(pc_low){
+    DecompResult result;
+    // auto instr32 = this->fetch(scheduled_warp, uuid);
+    // result = this->decompress(instr32);
+    // warp.instr_size = result.size;
 
-    // }
-    auto instr_word = this->fetch(scheduled_warp, uuid);
-    auto instr_code = this->decompress(instr_word);
-    // decode
-    this->decode(instr_code, scheduled_warp, uuid);
+    if (!warp.has_valid_fetch_word) {
+        auto instr32 = this->fetch(scheduled_warp, uuid);
+        result = this->decompress(instr32);
+        warp.instr32 = instr32;
+        warp.instr_size = result.size;
+        warp.has_valid_fetch_word = result.size == 2;
+    } else {
+        const uint32_t h = warp.instr32 >> 16;
+        if((h & 0x3) == 0x3){
+          // halfway 32-bit instr
+          warp.PC +=2;
+          auto instr32 = this->fetch(scheduled_warp, uuid);
+          warp.PC -=2;
+          result = this->decompress(h | (instr32 << 16));
+          warp.instr32 = instr32;
+          warp.instr_size = 4;
+          warp.has_valid_fetch_word = true;
+        }else{
+          // 16-bit instr - No need to fetch
+          result = this->decompress(h);
+          warp.instr_size = 2;
+          warp.has_valid_fetch_word = false;
+        }
+    }
+    assert(!result.illegal);
+
+    this->decode(result.instr32, scheduled_warp, uuid);
   } else {
     // we have a micro-instruction in the ibuffer
     // adjust PC back to original (incremented in execute())

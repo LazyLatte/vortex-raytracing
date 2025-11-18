@@ -1667,4 +1667,10 @@ using LsuArbiter  = TxRxArbiter<LsuReq, LsuRsp>;
 using MemArbiter  = TxRxArbiter<MemReq, MemRsp>;
 using MemCrossBar = TxRxCrossBar<MemReq, MemRsp>;
 
+struct DecompResult {
+    uint32_t instr32;  // always 32-bit base-ISA encoding (RV32I)
+    uint8_t  size;     // bytes consumed at this PC: 2 or 4
+    bool     illegal;  // set if the 16-bit pattern is reserved/illegal
+};
+
 }

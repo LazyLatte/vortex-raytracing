@@ -112,7 +112,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
   auto& warp = warps_.at(wid);
   assert(warp.tmask.any());
 
-  auto next_pc = warp.PC + 4;
+  auto next_pc = warp.PC + warp.instr_size;
   auto next_tmask = warp.tmask;
 
   auto fu_type = instr.getFUType();
@@ -1551,11 +1551,12 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
     }
   }
 
-  warp.PC += 4;
+  warp.PC += warp.instr_size;
 
   if (warp.PC != next_pc) {
     DP(3, "*** Next PC=0x" << std::hex << next_pc << std::dec);
     warp.PC = next_pc;
+    warp.has_valid_fetch_word = false;
   }
 
   if (warp.tmask != next_tmask) {
