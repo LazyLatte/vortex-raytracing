@@ -1277,6 +1277,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
           Word csr_value = this->get_csr(csr_addr, wid, t);
           auto src_data = csrArgs.is_imm ? csrArgs.imm : rs1_data[t].i;
           this->set_csr(csr_addr, src_data, wid, t);
+          this->set_csr(csr_addr, src_data, wid, t);
           rd_data[t].i = csr_value;
         }
       } break;
@@ -1287,6 +1288,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
           Word csr_value = this->get_csr(csr_addr, wid, t);
           auto src_data = csrArgs.is_imm ? csrArgs.imm : rs1_data[t].i;
           if (src_data != 0) {
+            this->set_csr(csr_addr, csr_value | src_data, wid, t);
             this->set_csr(csr_addr, csr_value | src_data, wid, t);
           }
           rd_data[t].i = csr_value;
@@ -1299,6 +1301,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
           Word csr_value = this->get_csr(csr_addr, wid, t);
           auto src_data = csrArgs.is_imm ? csrArgs.imm : rs1_data[t].i;
           if (src_data != 0) {
+            this->set_csr(csr_addr, csr_value & ~src_data, wid, t);
             this->set_csr(csr_addr, csr_value & ~src_data, wid, t);
           }
           rd_data[t].i = csr_value;
