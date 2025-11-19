@@ -46,7 +46,7 @@ public:
                 assert(entry.count);
                 --entry.count; // track remaining addresses
                 if (0 == entry.count) {
-                    simobject_->Outputs.at(iw).push(trace, 1);
+                    simobject_->Outputs.at(iw).push(trace, trace_data->pipeline_latency);
                     pending_reqs_.release(mem_rsp.tag);
                 }
                 dcache_rsp_port.pop();
@@ -110,8 +110,6 @@ public:
             }
 
             input.pop();
-
-            //simobject_->Outputs.at(iw).push(trace, trace_data->pipeline_latency);
         }
     }
 

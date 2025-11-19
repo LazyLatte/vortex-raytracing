@@ -38,4 +38,4 @@ int main() {
   return vx_spawn_threads(2, grid_dim, nullptr, (vx_kernel_func_cb)kernel_body, arg);
 }
 
-//ci/blackbox.sh --driver=simx --app=raycast --cores=1 --args="-mteapot.obj -w40 -h32"
+//CONFIGS="-DEXT_RUT_ENABLE" ci/blackbox.sh --driver=simx --app=raytracing --cores=1 --args="-mteapot.obj -w40 -h32"
