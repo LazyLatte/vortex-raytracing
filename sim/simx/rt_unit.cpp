@@ -46,6 +46,7 @@ public:
                 assert(entry.count);
                 --entry.count; // track remaining addresses
                 if (0 == entry.count) {
+                    auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
                     simobject_->Outputs.at(iw).push(trace, trace_data->pipeline_latency);
                     pending_reqs_.release(mem_rsp.tag);
                 }
