@@ -122,7 +122,7 @@ DecompResult Emulator::decompress(uint32_t word) {
         case 0b000: { // C.ADDI -> ADDI rd, rd, imm
             uint32_t rd = bits(h, 11, 7);
             int32_t imm = static_cast<int32_t>(sext(((bit(h,12)<<5) | bits(h,6,2)), 6));
-            if (rd == 0) { out.illegal = true; break; } // C.NOP is ADDI x0,x0,0 (legal), handle separately
+            //if (rd == 0) { out.illegal = true; break; } // C.NOP is ADDI x0,x0,0 (legal), handle separately
             out.instr32 = ENCI(imm & 0xFFF, rd, 0b000, rd, 0b0010011);
             // Special-case C.NOP:
             if (rd == 0 && (imm == 0)) {
@@ -239,7 +239,17 @@ DecompResult Emulator::decompress(uint32_t word) {
             out.instr32 = ENCI(sh, rd, 0b001, rd, 0b0010011);
             break;
         }
+        case 0b010: { // C.LWSP -> LW rd, offset(x2)
+            uint32_t rd = bits(h, 11, 7);
+            if (rd == 0) { 
+                out.illegal = true;
+                break;
+            }
 
+            uint32_t uimm = (bit(h, 12) << 5) | (bits(h, 6, 4) << 2) | (bits(h, 3, 2) << 6);
+            out.instr32 = ENCI(uimm, 2, 0b010, rd, 0b0000011);
+            break;
+        }
         case 0b100: {
             uint32_t rd  = bits(h, 11, 7);
             uint32_t rs2 = bits(h, 6, 2);
