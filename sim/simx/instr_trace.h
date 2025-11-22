@@ -75,7 +75,7 @@ public:
   bool eop;
 
   bool fetch_stall;
-
+  bool fetch_skip;
   uint64_t issue_time ;
 
   instr_trace_t(uint64_t uuid, const Arch& arch)
@@ -95,6 +95,7 @@ public:
     , sop(true)
     , eop(true)
     , fetch_stall(false)
+    , fetch_skip(false)
     , issue_time(SimPlatform::instance().cycles())
     , log_once_(false)
   {}

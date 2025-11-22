@@ -258,17 +258,23 @@ void Core::fetch() {
   if (fetch_latch_.empty())
     return;
   auto trace = fetch_latch_.front();
-  MemReq mem_req;
-  mem_req.addr  = trace->PC;
-  mem_req.write = false;
-  mem_req.tag   = pending_icache_.allocate(trace);
-  mem_req.cid   = trace->cid;
-  mem_req.uuid  = trace->uuid;
-  icache_req_ports.at(0).push(mem_req, 2);
-  DT(3, "icache-req: addr=0x" << std::hex << mem_req.addr << ", tag=0x" << mem_req.tag << std::dec << ", " << *trace);
-  fetch_latch_.pop();
-  ++perf_stats_.ifetches;
-  ++pending_ifetches_;
+  if(!trace->fetch_skip){
+    MemReq mem_req;
+    mem_req.addr  = trace->PC;
+    mem_req.write = false;
+    mem_req.tag   = pending_icache_.allocate(trace);
+    mem_req.cid   = trace->cid;
+    mem_req.uuid  = trace->uuid;
+    icache_req_ports.at(0).push(mem_req, 2);
+    DT(3, "icache-req: addr=0x" << std::hex << mem_req.addr << ", tag=0x" << mem_req.tag << std::dec << ", " << *trace);
+    fetch_latch_.pop();
+    ++perf_stats_.ifetches;
+    ++pending_ifetches_;
+  }else{
+    fetch_latch_.pop();
+    decode_latch_.push(trace);
+  }
+
 }
 
 void Core::decode() {

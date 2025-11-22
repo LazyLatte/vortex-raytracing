@@ -186,6 +186,7 @@ instr_trace_t* Emulator::step() {
   assert(warp.tmask.any());
 
   // fetch next instruction if ibuffer is empty
+  bool fetch_skip = false;
   if (warp.ibuffer.empty()) {
     uint64_t uuid = 0;
   #ifndef NDEBUG
@@ -224,6 +225,7 @@ instr_trace_t* Emulator::step() {
           result = this->decompress(h);
           warp.instr_size = 2;
           warp.has_valid_fetch_word = false;
+          fetch_skip = true;
         }
     }
     assert(!result.illegal);
@@ -241,7 +243,7 @@ instr_trace_t* Emulator::step() {
 
   // Execute
   auto trace = this->execute(*instr, scheduled_warp);
-
+  trace->fetch_skip = fetch_skip;
   return trace;
 }
 
