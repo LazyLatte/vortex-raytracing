@@ -402,9 +402,9 @@
 `endif
 
 // Number of RTU units
-`define NUM_RTU_LANES   `NUM_THREADS
+`define NUM_RTU_LANES   `SIMD_WIDTH
 `ifndef NUM_RTU_BLOCKS
-`define NUM_RTU_BLOCKS  `ISSUE_WIDTH
+`define NUM_RTU_BLOCKS  1
 `endif
 
 // Size of Instruction Buffer

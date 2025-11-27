@@ -47,6 +47,8 @@ Core::Core(const SimContext& ctx,
 #endif
 #ifdef EXT_RTU_ENABLE
   , rt_unit_(RTUnit::Create("rtu", arch, dcrs, this))
+  , rtu_dcache_req_out(NUM_RTU_BLOCKS, std::vector<SimPort<MemReq>>(NUM_RTU_LANES, this))
+  , rtu_dcache_rsp_in(NUM_RTU_BLOCKS, std::vector<SimPort<MemRsp>>(NUM_RTU_LANES, this))
 #endif
   , emulator_(arch, dcrs, this)
   , ibuffers_(arch.num_warps(), IBUF_SIZE)
@@ -86,6 +88,22 @@ Core::Core(const SimContext& ctx,
   for (uint32_t b = 0; b < NUM_LSU_BLOCKS; ++b) {
     snprintf(sname, 100, "%s-lmem_switch%d", this->name().c_str(), b);
     lmem_switch_.at(b) = LocalMemSwitch::Create(sname, 1);
+  }
+
+  // create one arbiter per dcache channel
+  std::vector<std::vector<MemArbiter::Ptr>> dcache_arbs(NUM_LSU_BLOCKS, std::vector<MemArbiter::Ptr>(DCACHE_CHANNELS));
+  for (uint32_t b = 0; b < NUM_LSU_BLOCKS; ++b) {
+    for (uint32_t c = 0; c < DCACHE_CHANNELS; ++c) {
+      snprintf(sname, 100, "%s-dcache_arb_b%u_c%u", this->name().c_str(), b, c);
+      dcache_arbs.at(b).at(c) = MemArbiter::Create(
+          sname,
+          ArbiterType::RoundRobin,
+          /*num_inputs=*/2,  // LSU + RTU
+          /*num_outputs=*/1,
+          /*req_delay=*/1,
+          /*rsp_delay=*/1
+      );
+    }
   }
 
   // create dcache adapter
@@ -131,9 +149,27 @@ Core::Core(const SimContext& ctx,
   // connect dcache adapter
   for (uint32_t b = 0; b < NUM_LSU_BLOCKS; ++b) {
     for (uint32_t c = 0; c < DCACHE_CHANNELS; ++c) {
+      lsu_dcache_adapter.at(b)->ReqOut.at(c).bind(&dcache_arbs.at(b).at(c)->ReqIn.at(0));
+      dcache_arbs.at(b).at(c)->RspIn.at(0).bind(&lsu_dcache_adapter.at(b)->RspOut.at(c));
+    }
+  }
+
+#ifdef EXT_RTU_ENABLE
+  // connect RTU
+  for (uint32_t b = 0; b < NUM_RTU_BLOCKS; ++b) {
+    for (uint32_t c = 0; c < DCACHE_CHANNELS; ++c) {
+      rtu_dcache_req_out.at(b).at(c).bind(&dcache_arbs.at(b).at(c)->ReqIn.at(1));
+      dcache_arbs.at(b).at(c)->RspIn.at(1).bind(&rtu_dcache_rsp_in.at(b).at(c));
+    }
+  }
+#endif
+
+  // connect dcache arbiter
+  for (uint32_t b = 0; b < NUM_LSU_BLOCKS; ++b) {
+    for (uint32_t c = 0; c < DCACHE_CHANNELS; ++c) {
       uint32_t p = b * DCACHE_CHANNELS + c;
-      lsu_dcache_adapter.at(b)->ReqOut.at(c).bind(&dcache_req_ports.at(p));
-      dcache_rsp_ports.at(p).bind(&lsu_dcache_adapter.at(b)->RspOut.at(c));
+      dcache_arbs.at(b).at(c)->ReqOut.at(0).bind(&dcache_req_ports.at(p));
+      dcache_rsp_ports.at(p).bind(&dcache_arbs.at(b).at(c)->RspOut.at(0));
     }
   }
 

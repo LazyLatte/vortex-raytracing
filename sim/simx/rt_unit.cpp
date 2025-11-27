@@ -36,7 +36,7 @@ public:
         // response
         for(uint32_t iw = 0; iw < num_blocks_; iw++){
             for (uint32_t t = 0; t < num_lanes_; t++) {
-                auto& dcache_rsp_port = simobject_->MemRsps.at(iw).at(t);
+                auto& dcache_rsp_port = core_->rtu_dcache_rsp_in.at(iw).at(t);
                 if (dcache_rsp_port.empty())
                     continue;
                 auto& mem_rsp = dcache_rsp_port.front();
@@ -83,7 +83,7 @@ public:
 
             uint32_t addr_count = 0;
             for (auto& mem_addr : trace_data->mem_addrs) {
-                addr_count += mem_addr.size;
+                addr_count += mem_addr.size();
             }
 
             if (addr_count != 0) {
@@ -92,8 +92,8 @@ public:
                     if (!trace->tmask.test(t))
                         continue;
 
-                    auto& dcache_req_port = simobject_->MemReqs.at(iw).at(t);
-                    for (auto& mem_addr : trace_data->mem_addrs) {
+                    auto& dcache_req_port = core_->rtu_dcache_req_out.at(iw).at(t);
+                    for (auto& mem_addr : trace_data->mem_addrs.at(t)) {
                         MemReq mem_req;
                         mem_req.addr  = mem_addr.addr;
                         mem_req.write = false;
@@ -248,8 +248,6 @@ RTUnit::RTUnit(const SimContext &ctx, const char* name, const Arch &arch, const 
     : SimObject<RTUnit>(ctx, name)
     , Inputs(ISSUE_WIDTH, this)
 	, Outputs(ISSUE_WIDTH, this)
-    , MemReqs(NUM_RTU_BLOCKS, std::vector<SimPort<MemReq>>(NUM_RTU_LANES, this))
-    , MemRsps(NUM_RTU_BLOCKS, std::vector<SimPort<MemRsp>>(NUM_RTU_LANES, this))
 	, impl_(new Impl(this, arch, dcrs, core))
 {}
 

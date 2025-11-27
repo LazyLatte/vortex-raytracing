@@ -30,9 +30,6 @@ public:
     }
 	};
   
-  std::vector<std::vector<SimPort<MemReq>>> MemReqs;
-  std::vector<std::vector<SimPort<MemRsp>>> MemRsps;
-
   std::vector<SimPort<instr_trace_t*>> Inputs; 
   std::vector<SimPort<instr_trace_t*>> Outputs; 
   RTUnit(const SimContext &ctx, const char* name, const Arch &arch, const DCRS &dcrs, Core* core);
