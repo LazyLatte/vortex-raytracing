@@ -11,138 +11,138 @@
 #define MAX_TREELET_FOOTPRINT 4096
 #define INF 3.4028235e+38
 
-//Stage 1
-void treelet_cost_calculation(bvh_node_t *bvhBuffer, uint32_t rootIdx, float *bestCost){
-    const bvh_node_t &root = bvhBuffer[rootIdx];
-    if(!root.isLeaf()){
-        treelet_cost_calculation(bvhBuffer, root.leftFirst, bestCost);
-        treelet_cost_calculation(bvhBuffer, root.leftFirst + 1, bestCost);
-    }
+// //Stage 1
+// void treelet_cost_calculation(bvh_node_t *bvhBuffer, uint32_t rootIdx, float *bestCost){
+//     const bvh_node_t &root = bvhBuffer[rootIdx];
+//     if(!root.isLeaf()){
+//         treelet_cost_calculation(bvhBuffer, root.leftFirst, bestCost);
+//         treelet_cost_calculation(bvhBuffer, root.leftFirst + 1, bestCost);
+//     }
   
-    uint32_t footprint = sizeof(bvh_node_t);
+//     uint32_t footprint = sizeof(bvh_node_t);
 
-    std::set<uint32_t> cut;
-    cut.insert(rootIdx);
-    uint32_t bytesRemaining = MAX_TREELET_FOOTPRINT;
-    bestCost[rootIdx] = std::numeric_limits<float>::max();
-    float eps = 0.0;
+//     std::set<uint32_t> cut;
+//     cut.insert(rootIdx);
+//     uint32_t bytesRemaining = MAX_TREELET_FOOTPRINT;
+//     bestCost[rootIdx] = std::numeric_limits<float>::max();
+//     float eps = 0.0;
 
-    while(1){
-        int32_t bestNodeIdx = -1;
-        float bestScore = std::numeric_limits<float>::lowest();
+//     while(1){
+//         int32_t bestNodeIdx = -1;
+//         float bestScore = std::numeric_limits<float>::lowest();
 
-        for(uint32_t n : cut){
-            const bvh_node_t &node = bvhBuffer[n];
-            if(footprint <= bytesRemaining){
-                float gain = surfaceArea(node.aabbMin, node.aabbMax) + eps;
-                //float price = std::min(node.triCount * 36, bytesRemaining);
-                float score = gain;
-                //float score = gain / price;
-                if(score > bestScore){
-                    bestNodeIdx = n;
-                    bestScore = score;
-                }
-            }
-        }
+//         for(uint32_t n : cut){
+//             const bvh_node_t &node = bvhBuffer[n];
+//             if(footprint <= bytesRemaining){
+//                 float gain = surfaceArea(node.aabbMin, node.aabbMax) + eps;
+//                 //float price = std::min(node.triCount * 36, bytesRemaining);
+//                 float score = gain;
+//                 //float score = gain / price;
+//                 if(score > bestScore){
+//                     bestNodeIdx = n;
+//                     bestScore = score;
+//                 }
+//             }
+//         }
 
-        if(bestNodeIdx < 0)
-            break;
+//         if(bestNodeIdx < 0)
+//             break;
 
-        const bvh_node_t &bestNode = bvhBuffer[bestNodeIdx];
-        if(!bestNode.isLeaf()){
-            uint32_t l = bestNode.leftFirst;
-            uint32_t r = l + 1;
+//         const bvh_node_t &bestNode = bvhBuffer[bestNodeIdx];
+//         if(!bestNode.isLeaf()){
+//             uint32_t l = bestNode.leftFirst;
+//             uint32_t r = l + 1;
 
-            cut.insert(l);
-            cut.insert(r);
-        }
+//             cut.insert(l);
+//             cut.insert(r);
+//         }
 
-        cut.erase(bestNodeIdx);
-        bytesRemaining -= footprint;
+//         cut.erase(bestNodeIdx);
+//         bytesRemaining -= footprint;
 
-        float total_cut_cost = 0;
-        for (uint32_t n : cut) {
-            total_cut_cost += bestCost[n];
-        }
+//         float total_cut_cost = 0;
+//         for (uint32_t n : cut) {
+//             total_cut_cost += bestCost[n];
+//         }
 
-        float cost = (surfaceArea(root.aabbMin, root.aabbMax)+ eps) + total_cut_cost;
-        bestCost[rootIdx] = std::min(bestCost[rootIdx], cost);
-    }
-}
+//         float cost = (surfaceArea(root.aabbMin, root.aabbMax)+ eps) + total_cut_cost;
+//         bestCost[rootIdx] = std::min(bestCost[rootIdx], cost);
+//     }
+// }
 
-//Stage 2
-void treelet_assignment(bvh_node_t *bvhBuffer, uint32_t &treeletID, float *bestCost){
-  std::queue<uint32_t> Q;
-  Q.push(0);
-  uint32_t footprint = sizeof(bvh_node_t);
-  //uint32_t treeletID = -1;
-  while (!Q.empty()) {
-    treeletID++;
-    uint32_t rootIdx = Q.front(); Q.pop();
-    const bvh_node_t &root = bvhBuffer[rootIdx];
+// //Stage 2
+// void treelet_assignment(bvh_node_t *bvhBuffer, uint32_t &treeletID, float *bestCost){
+//   std::queue<uint32_t> Q;
+//   Q.push(0);
+//   uint32_t footprint = sizeof(bvh_node_t);
+//   //uint32_t treeletID = -1;
+//   while (!Q.empty()) {
+//     treeletID++;
+//     uint32_t rootIdx = Q.front(); Q.pop();
+//     const bvh_node_t &root = bvhBuffer[rootIdx];
     
-    //start
-    std::set<uint32_t> cut;
-    cut.insert(rootIdx);
-    uint32_t bytesRemaining = MAX_TREELET_FOOTPRINT;
-    float eps = 0.0;
+//     //start
+//     std::set<uint32_t> cut;
+//     cut.insert(rootIdx);
+//     uint32_t bytesRemaining = MAX_TREELET_FOOTPRINT;
+//     float eps = 0.0;
 
-    float cost = 0;
+//     float cost = 0;
 
-    while(1){
-        int32_t bestNodeIdx = -1;
-        float bestScore = std::numeric_limits<float>::lowest();
+//     while(1){
+//         int32_t bestNodeIdx = -1;
+//         float bestScore = std::numeric_limits<float>::lowest();
 
-        for(uint32_t n : cut){
-            const bvh_node_t &node = bvhBuffer[n];
-            if(footprint <= bytesRemaining){
-                float gain = surfaceArea(node.aabbMin, node.aabbMax) + eps;
-                //float price = std::min(node.triCount * 36, bytesRemaining);
-                float score = gain;
-                //float score = gain / price;
-                if(score > bestScore){
-                    bestNodeIdx = n;
-                    bestScore = score;
-                }
-            }
-        }
-        if(bestNodeIdx < 0){
-            std::cout << "Can't enlarge the treelet: " << rootIdx << " " << cost << " " <<  bestCost[rootIdx] << std::endl;
-            break;
-        }
+//         for(uint32_t n : cut){
+//             const bvh_node_t &node = bvhBuffer[n];
+//             if(footprint <= bytesRemaining){
+//                 float gain = surfaceArea(node.aabbMin, node.aabbMax) + eps;
+//                 //float price = std::min(node.triCount * 36, bytesRemaining);
+//                 float score = gain;
+//                 //float score = gain / price;
+//                 if(score > bestScore){
+//                     bestNodeIdx = n;
+//                     bestScore = score;
+//                 }
+//             }
+//         }
+//         if(bestNodeIdx < 0){
+//             std::cout << "Can't enlarge the treelet: " << rootIdx << " " << cost << " " <<  bestCost[rootIdx] << std::endl;
+//             break;
+//         }
             
 
-        bvh_node_t &bestNode = bvhBuffer[bestNodeIdx];
-        if(!bestNode.isLeaf()){
-            uint32_t l = bestNode.leftFirst;
-            uint32_t r = l + 1;
+//         bvh_node_t &bestNode = bvhBuffer[bestNodeIdx];
+//         if(!bestNode.isLeaf()){
+//             uint32_t l = bestNode.leftFirst;
+//             uint32_t r = l + 1;
 
-            cut.insert(l);
-            cut.insert(r);
-        }
+//             cut.insert(l);
+//             cut.insert(r);
+//         }
 
-        cut.erase(bestNodeIdx);
-        bestNode.treeletID = treeletID;
-        bytesRemaining -= footprint;
+//         cut.erase(bestNodeIdx);
+//         bestNode.treeletID = treeletID;
+//         bytesRemaining -= footprint;
 
-        float total_cut_cost = 0;
-        for (uint32_t n : cut) {
-            total_cut_cost += bestCost[n];
-        }
+//         float total_cut_cost = 0;
+//         for (uint32_t n : cut) {
+//             total_cut_cost += bestCost[n];
+//         }
 
-        float cost = (surfaceArea(root.aabbMin, root.aabbMax)+ eps) + total_cut_cost;
-        if(cost == bestCost[rootIdx]){
-            //std::cout << "Treelet: ID=" << treeletID << " IDX: " << rootIdx << " Cost: " << cost << std::endl;
-            for (uint32_t n : cut) {
-                Q.push(n);
-            }
-            break;
-        }
-    }
-    //end
-  }
+//         float cost = (surfaceArea(root.aabbMin, root.aabbMax)+ eps) + total_cut_cost;
+//         if(cost == bestCost[rootIdx]){
+//             //std::cout << "Treelet: ID=" << treeletID << " IDX: " << rootIdx << " Cost: " << cost << std::endl;
+//             for (uint32_t n : cut) {
+//                 Q.push(n);
+//             }
+//             break;
+//         }
+//     }
+//     //end
+//   }
         
-}
+// }
 
 
 
@@ -200,25 +200,33 @@ std::string nodeName(bvh_node_t* node) {
 // Export function
 void exportDOT(bvh_node_t* bvhBuffer, uint32_t rootIdx, std::ofstream& out, const std::vector<std::string>& colors) {
     const bvh_node_t &root = bvhBuffer[rootIdx];
-    std::string color = colors[root.treeletID % colors.size()];
-
+    //std::string color = colors[root.treeletID % colors.size()];
+    std::string color = colors[0];
     out << "  " << nodeName(&bvhBuffer[rootIdx]) << " [style=filled, fillcolor=\"" << color << "\", label=\"\"];\n";
 
     if(!root.isLeaf()){
         uint32_t left = root.leftFirst;
-        uint32_t right = left + 1;
-        uint32_t k = right + 1;
-        uint32_t kk = k + 1;
-        out << "  " << nodeName(&bvhBuffer[rootIdx]) << " -> " << nodeName(&bvhBuffer[left]) << ";\n";
-        exportDOT(bvhBuffer, left, out, colors);
-        out << "  " << nodeName(&bvhBuffer[rootIdx]) << " -> " << nodeName(&bvhBuffer[right]) << ";\n";
-        exportDOT(bvhBuffer, right, out, colors);
+        for(int i=0; i<4; i++){
+            uint32_t childIdx = root.leftFirst + i;
+            if(i < root.childCount){
+                out << "  " << nodeName(&bvhBuffer[rootIdx]) << " -> " << nodeName(&bvhBuffer[childIdx]) << ";\n";
+                exportDOT(bvhBuffer, childIdx, out, colors);
+            }
+        }
+        // uint32_t left = root.leftFirst;
+        // uint32_t right = left + 1;
+        // uint32_t k = right + 1;
+        // uint32_t kk = k + 1;
+        // out << "  " << nodeName(&bvhBuffer[rootIdx]) << " -> " << nodeName(&bvhBuffer[left]) << ";\n";
+        // exportDOT(bvhBuffer, left, out, colors);
+        // out << "  " << nodeName(&bvhBuffer[rootIdx]) << " -> " << nodeName(&bvhBuffer[right]) << ";\n";
+        // exportDOT(bvhBuffer, right, out, colors);
 
-        out << "  " << nodeName(&bvhBuffer[rootIdx]) << " -> " << nodeName(&bvhBuffer[k]) << ";\n";
-        exportDOT(bvhBuffer, k, out, colors);
+        // out << "  " << nodeName(&bvhBuffer[rootIdx]) << " -> " << nodeName(&bvhBuffer[k]) << ";\n";
+        // exportDOT(bvhBuffer, k, out, colors);
 
-        out << "  " << nodeName(&bvhBuffer[rootIdx]) << " -> " << nodeName(&bvhBuffer[kk]) << ";\n";
-        exportDOT(bvhBuffer, kk, out, colors);
+        // out << "  " << nodeName(&bvhBuffer[rootIdx]) << " -> " << nodeName(&bvhBuffer[kk]) << ";\n";
+        // exportDOT(bvhBuffer, kk, out, colors);
     }
 }
 

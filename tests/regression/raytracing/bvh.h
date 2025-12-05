@@ -83,20 +83,36 @@ public:
   
 private:
 
-  uint32_t buildRecursive(uint32_t start, uint32_t end, uint32_t &currentInternalNodeIndex);
+  void buildRecursive(tlas_node_t &node);
 
   uint32_t partition(int start, int end, int axis, float splitPos);
+  Split findBestSplitPlane(tlas_node_t &cluster) const;
+  void updateNodeBounds(tlas_node_t &node) const;
+  void updateTriCount(tlas_node_t &node) const;
   void quantize();
   
+  struct Cluster {
+    uint32_t start, end;
+    uint32_t triCount;    // sum of triCounts_ over [start..end]
+    AABB bounds;          // union of tlasNodes_[nodeIndices_[i]] over range
+  };
+
+  // Cluster make_cluster(uint32_t start, uint32_t end);
+  // tlas_node_t make_tlas_node(uint32_t start, uint32_t end);
+  void updateNode(tlas_node_t &node, uint32_t start, uint32_t end);
   const std::vector<BVH*>& bvh_list_;
   const blas_node_t *blas_nodes_ = nullptr;
+
+  std::vector<tlas_node_t> tlasLeaves_;
   std::vector<tlas_node_t> tlasNodes_;
   std::vector<bvh_quantized_node_t> tlasQNodes_;
-  std::vector<uint32_t> nodeIndices_;
-  std::vector<uint32_t> triCounts_;
+  //std::vector<uint32_t> nodeIndices_;
+  //std::vector<uint32_t> triCounts_;
   uint32_t blasCount_ = 0;
   uint32_t nodeCount_ = 0;
   uint32_t rootIndex_ = 0;
+
+  uint32_t nodeIndex_ = 0;
 };
 
 // EOF

@@ -1,0 +1,1286 @@
+diff --git a/hw/rtl/VX_gpu_pkg.sv b/hw/rtl/VX_gpu_pkg.sv
+index f2f00ed7d..6fde6ae29 100644
+--- a/hw/rtl/VX_gpu_pkg.sv
++++ b/hw/rtl/VX_gpu_pkg.sv
+@@ -16,6 +16,10 @@
+ 
+ `include "VX_define.vh"
+ 
++`ifdef NDEBUG
++`undef NDEBUG
++`endif
++
+ `IGNORE_UNUSED_BEGIN
+ 
+ package VX_gpu_pkg;
+@@ -560,7 +564,8 @@ package VX_gpu_pkg;
+         logic [NW_WIDTH-1:0]    wid;
+         logic [`NUM_THREADS-1:0] tmask;
+         logic [PC_BITS-1:0]     PC;
+-        logic [31:0]            instr;
++        logic [31:0]            word;
++        logic                   last_in_word; // new, for handling lock/unlock
+     } fetch_t;
+ 
+     typedef struct packed {
+diff --git a/hw/rtl/core/VX_decode.sv b/hw/rtl/core/VX_decode.sv
+index 6669f2631..8cc9fb15f 100644
+--- a/hw/rtl/core/VX_decode.sv
++++ b/hw/rtl/core/VX_decode.sv
+@@ -50,7 +50,7 @@ module VX_decode import VX_gpu_pkg::*; #(
+     reg use_rd, use_rs1, use_rs2, use_rs3;
+     reg is_wstall;
+ 
+-    wire [31:0] instr = fetch_if.data.instr;
++    wire [31:0] instr = fetch_if.data.word;
+     wire [6:0] opcode = instr[6:0];
+     wire [1:0] funct2 = instr[26:25];
+     wire [2:0] funct3 = instr[14:12];
+@@ -564,9 +564,28 @@ module VX_decode import VX_gpu_pkg::*; #(
+ 
+     wire fetch_fire = fetch_if.valid && fetch_if.ready;
+ 
++`ifdef DBG_TRACE_PIPELINE
++    always @(posedge clk) begin
++        if (fetch_fire && fetch_if.data.wid == 0) begin
++            $display("[DECODE] PC=%08h opcode=%07b ex_type=%0d op_type=%0d xtype=%0d is_wstall=%0d unlock=%0d",
++                    to_fullPC(fetch_if.data.PC),
++                    opcode,
++                    ex_type,
++                    op_type,
++                    op_args.alu.xtype,
++                    is_wstall,
++                    ~is_wstall);
++        end
++    end
++`endif
++
+     assign decode_sched_if.valid  = fetch_fire;
+     assign decode_sched_if.wid    = fetch_if.data.wid;
+-    assign decode_sched_if.unlock = ~is_wstall;
++    // Only unlock when:
++    //  - this instruction does NOT require a warp stall (not a branch/jump/etc.)
++    //  - AND it is the last instruction from this icache word
++    assign decode_sched_if.unlock = ~is_wstall && fetch_if.data.last_in_word;
++
+ 
+ `ifndef L1_ENABLE
+     assign fetch_if.ibuf_pop = decode_if.ibuf_pop;
+diff --git a/hw/rtl/core/VX_decompressor.sv b/hw/rtl/core/VX_decompressor.sv
+new file mode 100644
+index 000000000..2b235678f
+--- /dev/null
++++ b/hw/rtl/core/VX_decompressor.sv
+@@ -0,0 +1,535 @@
++`include "VX_define.vh"
++
++module VX_decompressor import VX_gpu_pkg::*;(
++    input  wire         clk,
++    input  wire         reset,
++
++    // input from I$ / fetch
++    VX_fetch_if.slave   fetch_in_if,
++
++    // output to decode
++    VX_fetch_if.master  fetch_out_if
++);
++
++    // --- RV32I/F opcode constants used by decompressor ---
++    `define INST_L      7'b0000011  // LOAD
++    `define INST_S      7'b0100011  // STORE
++    `define INST_B      7'b1100011  // BRANCH
++    `define INST_JAL    7'b1101111  // JAL
++    `define INST_JALR   7'b1100111  // JALR
++    `define INST_LUI    7'b0110111  // LUI
++    `define INST_I      7'b0010011  // OP-IMM
++    `define INST_R      7'b0110011  // OP
++    `define INST_FL     7'b0000111  // LOAD-FP (flw)
++    `define INST_FS     7'b0100111  // STORE-FP (fsw)
++
++`ifdef XLEN_64
++    `define INST_I_W    7'b0011011  // OP-IMM-32
++    `define INST_R_W    7'b0111011  // OP-32
++`endif
++
++    // ------------------------------------------------------------------------
++    // 1. 16-bit -> 32-bit decompressor (pure combinational)
++    // ------------------------------------------------------------------------
++
++    function automatic logic [31:0] decompress (
++        input logic [15:0] instr_i
++    );
++        logic [2:0] func3;
++        logic [4:0] rd, rs1, rs2;
++        logic [4:0] rdp, rs1p, rs2p;
++
++        logic [11:0] lsw_imm, lwsp_imm, swsp_imm;
++    `ifdef XLEN_64
++        logic [11:0] lsd_imm, ldsp_imm, sdsp_imm;
++    `endif
++        logic [11:0] i_imm, b_imm, x_imm, w_imm;
++        logic [19:0] j_imm;
++
++        logic [31:0] instr_o;
++
++        func3 = instr_i[15:13];
++        rd    = instr_i[11:7];
++        rs1   = rd;
++        rs2   = instr_i[6:2];
++
++        // compact regs x8..x15
++        rdp   = {2'b01, instr_i[4:2]};
++        rs1p  = {2'b01, instr_i[9:7]};
++        rs2p  = rdp;
++
++        // immediates
++        lsw_imm  = {5'b0, instr_i[5], instr_i[12:10], instr_i[6], 2'b0};
++        lwsp_imm = {4'b0, instr_i[3:2], instr_i[12], instr_i[6:4], 2'b0};
++        swsp_imm = {4'b0, instr_i[8:7], instr_i[12:9], 2'b0};
++
++    `ifdef XLEN_64
++        lsd_imm  = {4'b0, instr_i[6:5], instr_i[12:10], 3'b0};
++        ldsp_imm = {3'b0, instr_i[4:2], instr_i[12], instr_i[6:5], 3'b0};
++        sdsp_imm = {3'b0, instr_i[9:7], instr_i[12:10], 3'b0};
++    `endif
++
++        i_imm  = {{7{instr_i[12]}}, instr_i[6:2]};
++        b_imm  = {{5{instr_i[12]}}, instr_i[6:5], instr_i[2], instr_i[11:10], instr_i[4:3]};
++        j_imm  = {{10{instr_i[12]}}, instr_i[8], instr_i[10:9], instr_i[6], instr_i[7],
++                  instr_i[2], instr_i[11], instr_i[5:3]};
++        x_imm  = {{3{instr_i[12]}}, instr_i[4:3], instr_i[5], instr_i[2], instr_i[6], 4'b0};
++        w_imm  = {2'd0, instr_i[10:7], instr_i[12:11], instr_i[5], instr_i[6], 2'b0};
++
++        instr_o = '0;
++
++        case (instr_i[1:0])
++
++        // ------------------------
++        // Quadrant 0
++        // ------------------------
++        2'b00: begin
++            case (func3)
++            3'b000: // c.addi4spn -> addi rd', x2, imm
++                instr_o = {w_imm, 5'd2, 3'b000, rdp, `INST_I};
++
++        `ifdef FLEN_64
++            3'b001: // c.fld -> fld rd', rs1', imm
++                instr_o = {lsd_imm, rs1p, 3'b011, rdp, `INST_FL};
++        `endif
++
++            3'b010: // c.lw -> lw rd', rs1', imm
++                instr_o = {lsw_imm, rs1p, 3'b010, rdp, `INST_L};
++
++        `ifdef XLEN_64
++            3'b011: // c.ld -> ld rd', rs1', imm
++                instr_o = {lsd_imm, rs1p, 3'b011, rdp, `INST_L};
++        `else
++            3'b011: // c.flw -> flw rd', rs1', imm
++                instr_o = {lsw_imm, rs1p, 3'b010, rdp, `INST_FL};
++        `endif
++
++        `ifdef FLEN_64
++            3'b101: // c.fsd -> fsd rs2', rs1', imm
++                instr_o = {lsd_imm[11:5], rs2p, rs1p, 3'b011, lsd_imm[4:0], `INST_FS};
++        `endif
++
++            3'b110: // c.sw -> sw rs2', rs1', imm
++                instr_o = {lsw_imm[11:5], rs2p, rs1p, 3'b010, lsw_imm[4:0], `INST_S};
++
++        `ifdef XLEN_64
++            3'b111: // c.sd -> sd rs2', rs1', imm
++                instr_o = {lsd_imm[11:5], rs2p, rs1p, 3'b011, lsd_imm[4:0], `INST_S};
++        `else
++            3'b111: // c.fsw -> fsw rs2', rs1', imm
++                instr_o = {lsw_imm[11:5], rs2p, rs1p, 3'b010, lsw_imm[4:0], `INST_FS};
++        `endif
++
++            default:
++                instr_o = 32'h00000013; // NOP
++            endcase
++        end
++
++        // ------------------------
++        // Quadrant 1
++        // ------------------------
++        2'b01: begin
++            case (func3)
++            3'b000: begin
++                // C.ADDI / C.NOP
++                // C.NOP is encoded as C.ADDI with rd = x0 and imm = 0
++                if ((rd == 5'd0) && (i_imm == 12'd0)) begin
++                    // C.NOP -> ADDI x0, x0, 0
++                    // 32'h00000013 == ADDI x0, x0, 0
++                    instr_o = 32'h00000013;
++                end else begin
++                    // C.ADDI -> ADDI rd, rd, imm
++                    instr_o = {i_imm, rd, 3'b000, rd, `INST_I};
++                end
++            end
++        `ifdef XLEN_64
++            3'b001: // c.addiw -> addiw rd, rd, imm
++                instr_o = {i_imm, rd, 3'b000, rd, `INST_I_W};
++        `endif
++
++            3'b010: // c.li -> addi rd, x0, imm
++                instr_o = {i_imm, 5'd0, 3'b000, rd, `INST_I};
++
++            3'b011: begin
++                if (rd == 5'd2) begin
++                    // c.addi16sp -> addi x2, x2, imm
++                    instr_o = {x_imm, 5'd2, 3'b000, 5'd2, `INST_I};
++                end else begin
++                    // c.lui -> lui rd, imm
++                    instr_o = {{{8{i_imm[11]}}, i_imm}, rd, `INST_LUI};
++                end
++            end
++
++            3'b100: begin
++                case (instr_i[11:10])
++                2'b00: // c.srli -> srli rs1', rs1', imm
++                    instr_o = {{6'b000000, i_imm[5:0]}, rs1p, 3'b101, rs1p, `INST_I};
++
++                2'b01: // c.srai -> srai rs1', rs1', imm
++                    instr_o = {{6'b010000, i_imm[5:0]}, rs1p, 3'b101, rs1p, `INST_I};
++
++                2'b10: // c.andi -> andi rs1', rs1', imm
++                    instr_o = {i_imm, rs1p, 3'b111, rs1p, `INST_I};
++
++                2'b11: begin
++                    case ({instr_i[12], instr_i[6:5]})
++                    3'b000: // c.sub -> sub rs1', rs1', rs2'
++                        instr_o = {7'b0100000, rs2p, rs1p, 3'b000, rs1p, `INST_R};
++                    3'b001: // c.xor -> xor rs1', rs1', rs2'
++                        instr_o = {7'b0000000, rs2p, rs1p, 3'b100, rs1p, `INST_R};
++                    3'b010: // c.or  -> or  rs1', rs1', rs2'
++                        instr_o = {7'b0000000, rs2p, rs1p, 3'b110, rs1p, `INST_R};
++                    3'b011: // c.and -> and rs1', rs1', rs2'
++                        instr_o = {7'b0000000, rs2p, rs1p, 3'b111, rs1p, `INST_R};
++        `ifdef XLEN_64
++                    3'b100: // c.subw -> subw rs1', rs1', rs2'
++                        instr_o = {7'b0100000, rs2p, rs1p, 3'b000, rs1p, `INST_R_W};
++                    3'b101: // c.addw -> addw rs1', rs1', rs2'
++                        instr_o = {7'b0000000, rs2p, rs1p, 3'b000, rs1p, `INST_R_W};
++        `endif
++                    default:
++                        instr_o = 32'h00000013;
++                    endcase
++                end
++
++                default:
++                    instr_o = 32'h00000013;
++                endcase
++            end
++
++            3'b101: // c.j -> jal x0, imm
++                instr_o = {j_imm[19], j_imm[9:0], j_imm[10], j_imm[18:11], 5'd0, `INST_JAL};
++
++            3'b110: // c.beqz -> beq rs1', x0, imm
++                instr_o = {b_imm[11], b_imm[9:4], 5'd0, rs1p, 3'b000, b_imm[3:0], b_imm[10], `INST_B};
++
++            3'b111: // c.bnez -> bne rs1', x0, imm
++                instr_o = {b_imm[11], b_imm[9:4], 5'd0, rs1p, 3'b001, b_imm[3:0], b_imm[10], `INST_B};
++
++            default:
++                instr_o = 32'h00000013;
++            endcase
++        end
++
++        // ------------------------
++        // Quadrant 2
++        // ------------------------
++        2'b10: begin
++            case (func3)
++            3'b000:  // c.slli -> slli rd, rd, imm
++                instr_o = {{6'b000000, i_imm[5:0]}, rd, 3'b001, rd, `INST_I};
++
++        `ifdef FLEN_64
++            3'b001: // c.fldsp -> fld rd, x2, imm
++                instr_o = {ldsp_imm, 5'd2, 3'b011, rd, `INST_FL};
++        `endif
++
++            3'b010: // c.lwsp -> lw rd, x2, imm
++                instr_o = {lwsp_imm, 5'd2, 3'b010, rd, `INST_L};
++
++        `ifdef XLEN_64
++            3'b011: // c.ldsp -> ld rd, x2, imm
++                instr_o = {ldsp_imm, 5'd2, 3'b011, rd, `INST_L};
++        `else
++            3'b011: // c.flwsp -> flw rd, x2, imm
++                instr_o = {lwsp_imm, 5'd2, 3'b010, rd, `INST_FL};
++        `endif
++
++            3'b100: begin
++                if (instr_i[12] == 1'b0) begin
++                    if (rs2 == 5'd0) begin
++                        // c.jr -> jalr x0, rs1, 0
++                        instr_o = {12'd0, rs1, 3'b000, 5'd0, `INST_JALR};
++                    end else begin
++                        // c.mv -> add rd, x0, rs2
++                        instr_o = {7'b0000000, rs2, 5'd0, 3'b000, rd, `INST_R};
++                    end
++                end else begin
++                    if (rs2 == 5'd0) begin
++                        if (rs1 == 5'd0) begin
++                            // c.ebreak -> ebreak
++                            instr_o = 32'b000000000001_00000_000_00000_1110011;
++                        end else begin
++                            // c.jalr  -> jalr x1, rs1, 0
++                            instr_o = {12'd0, rs1, 3'b000, 5'd1, `INST_JALR};
++                        end
++                    end else begin
++                        // c.add -> add rd, rd, rs2
++                        instr_o = {7'b0000000, rs2, rd, 3'b000, rd, `INST_R};
++                    end
++                end
++            end
++
++        `ifdef FLEN_64
++            3'b101: // c.fsdsp -> fsd rs2, x2, imm
++                instr_o = {sdsp_imm[11:5], rs2, 5'd2, 3'b011, sdsp_imm[4:0], `INST_FS};
++        `endif
++
++            3'b110:   // c.swsp -> sw rs2, x2, imm
++                instr_o = {swsp_imm[11:5], rs2, 5'd2, 3'b010, swsp_imm[4:0], `INST_S};
++
++        `ifdef XLEN_64
++            3'b111:   // c.sdsp -> sd rs2, x2, imm
++                instr_o = {sdsp_imm[11:5], rs2, 5'd2, 3'b011, sdsp_imm[4:0], `INST_S};
++        `else
++            3'b111: // c.fswsp -> fsw rs2, x2, imm
++                instr_o = {swsp_imm[11:5], rs2, 5'd2, 3'b010, swsp_imm[4:0], `INST_FS};
++        `endif
++
++            default:
++                instr_o = 32'h00000013;
++            endcase
++        end
++
++        default:
++            instr_o = 32'h00000013;
++        endcase
++
++        return instr_o;
++    endfunction
++
++    // ------------------------------------------------------------------------
++    // 2. Global halfword buffer for RVC / cross-word 32-bit
++    // ------------------------------------------------------------------------
++
++    typedef enum logic [1:0] {
++        BUF_EMPTY = 2'b00,   // no buffered halfword
++        BUF_RVC   = 2'b01,   // buffered complete 16b compressed instr
++        BUF_32HI  = 2'b10    // buffered high half of a 32b instr (needs next word)
++    } buf_state_e;
++
++    // Per-warp state
++    buf_state_e              buf_state   [`NUM_WARPS];
++    buf_state_e              buf_state_n [`NUM_WARPS];
++
++    logic [15:0]             buf_hw      [`NUM_WARPS];
++    logic [15:0]             buf_hw_n    [`NUM_WARPS];
++
++    logic [PC_BITS-1:0]      buf_pc      [`NUM_WARPS];
++    logic [PC_BITS-1:0]      buf_pc_n    [`NUM_WARPS];
++
++    logic [UUID_WIDTH-1:0]   buf_uuid    [`NUM_WARPS];
++    logic [UUID_WIDTH-1:0]   buf_uuid_n  [`NUM_WARPS];
++
++    logic [`NUM_THREADS-1:0] buf_tmask   [`NUM_WARPS];
++    logic [`NUM_THREADS-1:0] buf_tmask_n [`NUM_WARPS];
++
++
++    // Compressed if [1:0] != 2'b11
++    function automatic logic is_rvc16 (input logic [1:0] op);
++        return (op != 2'b11);
++    endfunction
++
++    // Pass ibuf_pop straight through when no L1
++`ifndef L1_ENABLE
++    assign fetch_in_if.ibuf_pop = fetch_out_if.ibuf_pop;
++`endif
++
++    // ------------------------------------------------------------------------
++    // Main combinational control (state machine over halfwords)
++    // ------------------------------------------------------------------------
++    always_comb begin
++        // Local temps
++        logic        in_valid;
++        fetch_t      in_data;
++        logic        out_ready;
++        logic [31:0] word, word2;
++        logic [15:0] low16, high16, low2, high2;
++        logic        low_is_c;
++
++        logic [NW_WIDTH-1:0] cur_wid;
++        buf_state_e          cur_state;
++
++        in_valid   = fetch_in_if.valid;
++        in_data    = fetch_in_if.data;
++        out_ready  = fetch_out_if.ready;
++
++        word       = '0;
++        word2      = '0;
++        low16      = '0;
++        high16     = '0;
++        low2       = '0;
++        high2      = '0;
++        low_is_c   = 1'b0;
++
++        // Default outputs
++        fetch_out_if.valid = 1'b0;
++        fetch_out_if.data  = '0;
++        fetch_in_if.ready  = 1'b0;
++        fetch_out_if.data.last_in_word = in_data.last_in_word;  // *** NEW: default = "this is last" ***
++
++        // default: keep all warp-local buffers as-is
++        for (int w = 0; w < `NUM_WARPS; ++w) begin
++            buf_state_n[w]  = buf_state[w];
++            buf_hw_n[w]     = buf_hw[w];
++            buf_pc_n[w]     = buf_pc[w];
++            buf_uuid_n[w]   = buf_uuid[w];
++            buf_tmask_n[w]  = buf_tmask[w];
++        end
++
++        cur_wid   = in_data.wid;
++        cur_state = buf_state[cur_wid];
++
++
++        // =========================
++        // Case 1: buffered RVC inst
++        // =========================
++        if (cur_state == BUF_RVC) begin
++            fetch_out_if.valid         = 1'b1;
++            fetch_out_if.data.uuid     = buf_uuid[cur_wid];
++            fetch_out_if.data.wid      = cur_wid;
++            fetch_out_if.data.tmask    = buf_tmask[cur_wid];
++            fetch_out_if.data.PC       = buf_pc[cur_wid];
++            fetch_out_if.data.word     = decompress(buf_hw[cur_wid]);
++            fetch_out_if.data.last_in_word = 1'b1;
++
++            // Important: we do NOT consume icache data here
++            fetch_in_if.ready = 1'b0;
++
++            if (out_ready) begin
++                buf_state_n[cur_wid] = BUF_EMPTY;
++            end
++        end
++        // ==============================
++        // Case 2: buffered high half of 32b
++        // ==============================
++        else if (cur_state == BUF_32HI) begin
++            if (in_valid) begin
++                word2 = in_data.word;
++                low2  = word2[15:0];
++                high2 = word2[31:16];
++
++                fetch_out_if.valid     = 1'b1;
++                fetch_out_if.data.uuid = buf_uuid[cur_wid];
++                fetch_out_if.data.wid  = cur_wid;
++                fetch_out_if.data.tmask= buf_tmask[cur_wid];
++                fetch_out_if.data.PC   = buf_pc[cur_wid];
++                fetch_out_if.data.word = {low2, buf_hw[cur_wid]};
++
++                if (out_ready) begin
++                    fetch_in_if.ready = 1'b1;
++
++                    if (is_rvc16(high2[1:0])) begin
++                        // high2 is compressed → BUF_RVC
++                        buf_state_n[cur_wid] = BUF_RVC;
++                        buf_hw_n[cur_wid]    = high2;
++                        buf_pc_n[cur_wid]    = from_fullPC(to_fullPC(in_data.PC) + `XLEN'(2));
++                        buf_uuid_n[cur_wid]  = in_data.uuid;
++                        buf_tmask_n[cur_wid] = in_data.tmask;
++                        fetch_out_if.data.last_in_word = 1'b0;
++                    end else begin
++                        // new cross-boundary 32b
++                        buf_state_n[cur_wid] = BUF_32HI;
++                        buf_hw_n[cur_wid]    = high2;
++                        buf_pc_n[cur_wid]    = from_fullPC(to_fullPC(in_data.PC) + `XLEN'(2));
++                        buf_uuid_n[cur_wid]  = in_data.uuid;
++                        buf_tmask_n[cur_wid] = in_data.tmask;
++                        fetch_out_if.data.last_in_word = 1'b1;
++                    end
++                end
++            end
++        end
++
++
++        // ======================
++        // Case 3: no buffered hw
++        // ======================
++        else begin // BUF_EMPTY
++            if (in_valid) begin
++                word   = in_data.word;
++                low16  = word[15:0];
++                high16 = word[31:16];
++                low_is_c = is_rvc16(low16[1:0]);
++
++                fetch_out_if.valid      = 1'b1;
++                fetch_out_if.data.uuid  = in_data.uuid;
++                fetch_out_if.data.wid   = in_data.wid;
++                fetch_out_if.data.tmask = in_data.tmask;
++                fetch_out_if.data.PC    = in_data.PC;
++
++                if (out_ready) begin
++                    fetch_in_if.ready = 1'b1;
++
++                    if (low_is_c) begin
++                        // low16 RVC
++                        fetch_out_if.data.word = decompress(low16);
++
++                        if (is_rvc16(high16[1:0])) begin
++                            // next RVC in same word
++                            buf_state_n[in_data.wid]  = BUF_RVC;
++                            buf_hw_n[in_data.wid]     = high16;
++                            buf_pc_n[in_data.wid]     = from_fullPC(to_fullPC(in_data.PC) + `XLEN'(2));
++                            buf_uuid_n[in_data.wid]   = in_data.uuid;
++                            buf_tmask_n[in_data.wid]  = in_data.tmask;
++
++                            fetch_out_if.data.last_in_word = 1'b0;
++                        end else begin
++                            // cross-boundary 32b
++                            buf_state_n[in_data.wid]  = BUF_32HI;
++                            buf_hw_n[in_data.wid]     = high16;
++                            buf_pc_n[in_data.wid]     = from_fullPC(to_fullPC(in_data.PC) + `XLEN'(2));
++                            buf_uuid_n[in_data.wid]   = in_data.uuid;
++                            buf_tmask_n[in_data.wid]  = in_data.tmask;
++
++                            fetch_out_if.data.last_in_word = 1'b1;
++                        end
++                    end else begin
++                        // 32b fully inside word
++                        fetch_out_if.data.word       = word;
++                        buf_state_n[in_data.wid]     = BUF_EMPTY;
++                        fetch_out_if.data.last_in_word = 1'b1;
++                    end
++                end
++            end
++        end
++    end
++
++
++    // ------------------------------------------------------------------------
++    // Sequential update of buffer regs
++    // ------------------------------------------------------------------------
++    always_ff @(posedge clk) begin
++        if (reset) begin
++            for (int w = 0; w < `NUM_WARPS; ++w) begin
++                buf_state[w]  <= BUF_EMPTY;
++                buf_hw[w]     <= '0;
++                buf_pc[w]     <= '0;
++                buf_uuid[w]   <= '0;
++                buf_tmask[w]  <= '0;
++            end
++        end else begin
++            for (int w = 0; w < `NUM_WARPS; ++w) begin
++                buf_state[w]  <= buf_state_n[w];
++                buf_hw[w]     <= buf_hw_n[w];
++                buf_pc[w]     <= buf_pc_n[w];
++                buf_uuid[w]   <= buf_uuid_n[w];
++                buf_tmask[w]  <= buf_tmask_n[w];
++            end
++        end
++    end
++
++
++`ifdef DBG_TRACE_PIPELINE
++
++    integer decomp_cnt;
++
++    always_ff @(posedge clk) begin
++        if (reset) begin
++            decomp_cnt <= 0;
++        end else if (fetch_out_if.valid && fetch_out_if.ready) begin
++            // (optional) only warp 0
++            if (fetch_out_if.data.wid == '0) begin
++                decomp_cnt <= decomp_cnt + 1;
++                $display("[RTL  C%3d] PC=%08h out32=%08h lo16=%04h hi16=%04h wid=%0d",
++                        decomp_cnt,
++                        fetch_out_if.data.PC,
++                        fetch_out_if.data.word,
++                        fetch_out_if.data.word[15:0],
++                        fetch_out_if.data.word[31:16],
++                        fetch_out_if.data.wid);
++            end
++        end
++    end
++`endif
++
++endmodule
+diff --git a/hw/rtl/core/VX_fetch.sv b/hw/rtl/core/VX_fetch.sv
+index 60a310c09..44c3e702f 100644
+--- a/hw/rtl/core/VX_fetch.sv
++++ b/hw/rtl/core/VX_fetch.sv
+@@ -31,7 +31,7 @@ module VX_fetch import VX_gpu_pkg::*; #(
+     VX_fetch_if.master      fetch_if
+ );
+     `UNUSED_SPARAM (INSTANCE_ID)
+-    `UNUSED_VAR (reset)
++    //`UNUSED_VAR (reset)
+ 
+     wire icache_req_valid;
+     wire [ICACHE_ADDR_WIDTH-1:0] icache_req_addr;
+@@ -124,13 +124,28 @@ module VX_fetch import VX_gpu_pkg::*; #(
+ 
+     // Icache Response
+ 
+-    assign fetch_if.valid = icache_bus_if.rsp_valid;
+-    assign fetch_if.data.tmask = rsp_tmask;
+-    assign fetch_if.data.wid   = rsp_tag;
+-    assign fetch_if.data.PC    = rsp_PC;
+-    assign fetch_if.data.instr = icache_bus_if.rsp_data.data;
+-    assign fetch_if.data.uuid  = rsp_uuid;
+-    assign icache_bus_if.rsp_ready = fetch_if.ready;
++    VX_fetch_if fetch_tmp_if();
++
++    // I$ → temporary fetch interface
++    assign fetch_tmp_if.valid      = icache_bus_if.rsp_valid;
++    assign fetch_tmp_if.data.tmask = rsp_tmask;
++    assign fetch_tmp_if.data.wid   = rsp_tag;
++    assign fetch_tmp_if.data.PC    = rsp_PC;
++    assign fetch_tmp_if.data.word = icache_bus_if.rsp_data.data; // raw 32b word
++    assign fetch_tmp_if.data.uuid  = rsp_uuid;
++    assign fetch_tmp_if.data.last_in_word = 1'b1;
++
++    // I$ sees ready from decompressor input
++    assign icache_bus_if.rsp_ready = fetch_tmp_if.ready;
++
++    // Decompress 16-bit instructions between fetch and decode
++    VX_decompressor decompressor_u (
++        .clk          (clk),
++        .reset        (reset),
++        .fetch_in_if  (fetch_tmp_if),
++        .fetch_out_if (fetch_if)
++    );
++
+ 
+ `ifdef SCOPE
+ `ifdef DBG_SCOPE_FETCH
+@@ -184,7 +199,7 @@ module VX_fetch import VX_gpu_pkg::*; #(
+             `TRACE(1, ("%t: %s req: wid=%0d, PC=0x%0h, tmask=%b (#%0d)\n", $time, INSTANCE_ID, schedule_if.data.wid, to_fullPC(schedule_if.data.PC), schedule_if.data.tmask, schedule_if.data.uuid))
+         end
+         if (fetch_if.valid && fetch_if.ready) begin
+-            `TRACE(1, ("%t: %s rsp: wid=%0d, PC=0x%0h, tmask=%b, instr=0x%0h (#%0d)\n", $time, INSTANCE_ID, fetch_if.data.wid, to_fullPC(fetch_if.data.PC), fetch_if.data.tmask, fetch_if.data.instr, fetch_if.data.uuid))
++            `TRACE(1, ("%t: %s rsp: wid=%0d, PC=0x%0h, tmask=%b, instr=0x%0h (#%0d)\n", $time, INSTANCE_ID, fetch_if.data.wid, to_fullPC(fetch_if.data.PC), fetch_if.data.tmask, fetch_if.data.word, fetch_if.data.uuid))
+         end
+     end
+ `endif
+diff --git a/hw/rtl/interfaces/VX_decode_if.sv b/hw/rtl/interfaces/VX_decode_if.sv
+index c0827a15b..fc7cd972e 100644
+--- a/hw/rtl/interfaces/VX_decode_if.sv
++++ b/hw/rtl/interfaces/VX_decode_if.sv
+@@ -12,7 +12,7 @@
+ // limitations under the License.
+ 
+ `include "VX_define.vh"
+-
++/* verilator lint_off UNOPTFLAT */
+ interface VX_decode_if import VX_gpu_pkg::*; ();
+     logic  valid;
+     decode_t data;
+@@ -40,3 +40,4 @@ interface VX_decode_if import VX_gpu_pkg::*; ();
+     );
+ 
+ endinterface
++/* verilator lint_on UNOPTFLAT */
+diff --git a/sim/simx/Makefile b/sim/simx/Makefile
+index e615d5aab..e82aef8ee 100644
+--- a/sim/simx/Makefile
++++ b/sim/simx/Makefile
+@@ -22,7 +22,7 @@ LDFLAGS += -Wl,-rpath,$(THIRD_PARTY_DIR)/ramulator -L$(THIRD_PARTY_DIR)/ramulato
+ # Source files definition
+ SRCS = $(SW_COMMON_DIR)/util.cpp $(SW_COMMON_DIR)/mem.cpp $(SW_COMMON_DIR)/softfloat_ext.cpp $(SW_COMMON_DIR)/rvfloats.cpp $(SW_COMMON_DIR)/dram_sim.cpp
+ SRCS += $(SRC_DIR)/processor.cpp $(SRC_DIR)/cluster.cpp $(SRC_DIR)/socket.cpp $(SRC_DIR)/core.cpp $(SRC_DIR)/emulator.cpp
+-SRCS += $(SRC_DIR)/decode.cpp $(SRC_DIR)/opc_unit.cpp $(SRC_DIR)/dispatcher.cpp
++SRCS += $(SRC_DIR)/decode.cpp $(SRC_DIR)/opc_unit.cpp $(SRC_DIR)/dispatcher.cpp $(SRC_DIR)/decompress.cpp
+ SRCS += $(SRC_DIR)/execute.cpp $(SRC_DIR)/func_unit.cpp
+ SRCS += $(SRC_DIR)/cache_sim.cpp $(SRC_DIR)/mem_sim.cpp $(SRC_DIR)/local_mem.cpp $(SRC_DIR)/mem_coalescer.cpp
+ SRCS += $(SRC_DIR)/dcrs.cpp $(SRC_DIR)/types.cpp
+diff --git a/sim/simx/core.cpp b/sim/simx/core.cpp
+index c60b2990a..224d3c093 100644
+--- a/sim/simx/core.cpp
++++ b/sim/simx/core.cpp
+@@ -258,17 +258,23 @@ void Core::fetch() {
+   if (fetch_latch_.empty())
+     return;
+   auto trace = fetch_latch_.front();
+-  MemReq mem_req;
+-  mem_req.addr  = trace->PC;
+-  mem_req.write = false;
+-  mem_req.tag   = pending_icache_.allocate(trace);
+-  mem_req.cid   = trace->cid;
+-  mem_req.uuid  = trace->uuid;
+-  icache_req_ports.at(0).push(mem_req, 2);
+-  DT(3, "icache-req: addr=0x" << std::hex << mem_req.addr << ", tag=0x" << mem_req.tag << std::dec << ", " << *trace);
+-  fetch_latch_.pop();
+-  ++perf_stats_.ifetches;
+-  ++pending_ifetches_;
++  if(!trace->fetch_skip){
++    MemReq mem_req;
++    mem_req.addr  = trace->PC;
++    mem_req.write = false;
++    mem_req.tag   = pending_icache_.allocate(trace);
++    mem_req.cid   = trace->cid;
++    mem_req.uuid  = trace->uuid;
++    icache_req_ports.at(0).push(mem_req, 2);
++    DT(3, "icache-req: addr=0x" << std::hex << mem_req.addr << ", tag=0x" << mem_req.tag << std::dec << ", " << *trace);
++    fetch_latch_.pop();
++    ++perf_stats_.ifetches;
++    ++pending_ifetches_;
++  }else{
++    fetch_latch_.pop();
++    decode_latch_.push(trace);
++  }
++
+ }
+ 
+ void Core::decode() {
+diff --git a/sim/simx/decompress.cpp b/sim/simx/decompress.cpp
+new file mode 100644
+index 000000000..b89132edc
+--- /dev/null
++++ b/sim/simx/decompress.cpp
+@@ -0,0 +1,314 @@
++#include "emulator.h"
++#include "types.h"
++#include <cstdint>
++#include <iostream>
++using namespace vortex;
++
++static inline uint32_t bit(uint32_t x, int b) { return (x >> b) & 1u; }
++static inline uint32_t bits(uint32_t x, int hi, int lo) { return (x >> lo) & ((1u << (hi - lo + 1)) - 1u); }
++static inline uint32_t sext(uint32_t val, int width) {
++    uint32_t m = 1u << (width - 1);
++    return (val ^ m) - m;
++}
++
++// compressed register mapping: rd' (3 bits) -> x8..x15
++static inline uint32_t rcp(uint32_t r3) { return 8u + r3; }
++
++// Build I-type, S-type, U-type, R-type 32-bit encodings (RV32I)
++static inline uint32_t ENCI(uint32_t imm12, uint32_t rs1, uint32_t funct3, uint32_t rd, uint32_t opcode) {
++    return ((imm12 & 0xFFF) << 20) | ((rs1 & 31) << 15) | ((funct3 & 7) << 12) | ((rd & 31) << 7) | (opcode & 0x7F);
++}
++static inline uint32_t ENCR(uint32_t funct7, uint32_t rs2, uint32_t rs1, uint32_t funct3, uint32_t rd, uint32_t opcode) {
++    return ((funct7 & 0x7F) << 25) | ((rs2 & 31) << 20) | ((rs1 & 31) << 15) | ((funct3 & 7) << 12) | ((rd & 31) << 7) | (opcode & 0x7F);
++}
++static inline uint32_t ENCS(uint32_t imm12, uint32_t rs2, uint32_t rs1, uint32_t funct3, uint32_t opcode) {
++    uint32_t imm11_5 = (imm12 >> 5) & 0x7F;
++    uint32_t imm4_0  = imm12 & 0x1F;
++    return (imm11_5 << 25) | ((rs2 & 31) << 20) | ((rs1 & 31) << 15) | ((funct3 & 7) << 12) | (imm4_0 << 7) | (opcode & 0x7F);
++}
++static inline uint32_t ENCU(uint32_t imm20, uint32_t rd, uint32_t opcode) {
++    return ((imm20 & 0xFFFFF) << 12) | ((rd & 31) << 7) | (opcode & 0x7F);
++}
++static inline uint32_t ENCUJ(uint32_t imm21, uint32_t rd, uint32_t opcode) { // JAL
++    // J-type bit shuffle: [20|10:1|11|19:12]
++    uint32_t i = imm21 & 0x001FFFFF;
++    uint32_t enc = ((i & (1<<20)) << 11)         // 20 -> 31
++                 | ((i & 0x000007FE) << 20)      // 10:1 -> 30:21
++                 | ((i & (1<<11)) << 9)          // 11 -> 20
++                 | ((i & 0x000FF000));           // 19:12 -> 19:12 already aligned after shift
++    return enc | ((rd & 31) << 7) | (opcode & 0x7F);
++}
++static inline uint32_t ENCB(uint32_t imm13, uint32_t rs2, uint32_t rs1, uint32_t funct3, uint32_t opcode) {
++    // B-type: imm[12|10:5|4:1|11] -> [31|30:25|11:8|7]
++    uint32_t i = imm13 & 0x1FFF;
++    uint32_t imm12 = (i >> 12) & 1;
++    uint32_t imm10_5 = (i >> 5) & 0x3F;
++    uint32_t imm4_1 = (i >> 1) & 0xF;
++    uint32_t imm11 = (i >> 11) & 1;
++    uint32_t enc = (imm12 << 31) | (imm10_5 << 25) | ((rs2 & 31) << 20) | ((rs1 & 31) << 15) |
++                   ((funct3 & 7) << 12) | (imm4_1 << 8) | (imm11 << 7) | (opcode & 0x7F);
++    return enc;
++}
++
++// --- main ---------------------------------------------------------------
++
++DecompResult Emulator::decompress(uint32_t word) {
++    DecompResult out{};
++
++    if ((word & 0x3) == 0x3) {
++        out.instr32 = word;
++        out.size    = 4;
++        out.illegal = false;
++        return out;
++    }
++
++    // 16-bit compressed
++    const uint16_t h = static_cast<uint16_t>(word & 0xFFFF);
++    const uint32_t quadrant = h & 0x3;              // 0,1,2
++    const uint32_t funct3   = (h >> 13) & 0x7;
++
++    out.size    = 2;
++    out.illegal = false;
++
++    switch (quadrant) {
++    // ---------------- Quadrant 0 (opcode 00) ----------------
++    case 0:
++        switch (funct3) {
++        case 0b000: { // C.ADDI4SPN -> ADDI rd', x2, nzimm
++            uint32_t rd_ = rcp(bits(h, 4, 2));
++            uint32_t nzuimm = (bits(h, 12, 11) << 4) | (bits(h,10, 7) << 6) | (bit(h, 5) << 3) | (bit(h, 6) << 2);
++            if (nzuimm == 0) { out.illegal = true; break; }
++            out.instr32 = ENCI(nzuimm, 2, 0b000, rd_, 0b0010011);
++            break;
++        }
++        case 0b010: { // C.LW -> LW rd', offset(rs1')
++            uint32_t rd_  = rcp(bits(h, 4, 2));
++            uint32_t rs1_ = rcp(bits(h, 9, 7));
++            uint32_t uimm = (bit(h, 5) << 6) | (bits(h, 12, 10) << 3) | (bit(h, 6) << 2);
++            out.instr32 = ENCI(uimm, rs1_, 0b010, rd_, 0b0000011);
++            break;
++        }
++        
++        case 0b011: { // C.FLW -> FLW rd', offset(rs1')
++            uint32_t rd_  = rcp(bits(h, 4, 2));
++            uint32_t rs1_ = rcp(bits(h, 9, 7));
++            uint32_t uimm = (bit(h, 5) << 6) | (bits(h, 12, 10) << 3) | (bit(h, 6) << 2);
++            out.instr32 = ENCI(uimm, rs1_, 0b010, rd_, 0b0000111);
++            break;
++        }
++        case 0b110: { // C.SW -> SW rs2', offset(rs1')
++            uint32_t rs2_ = rcp(bits(h, 4, 2));
++            uint32_t rs1_ = rcp(bits(h, 9, 7));
++            uint32_t uimm = (bit(h, 5) << 6) | (bits(h, 12, 10) << 3) | (bit(h, 6) << 2);
++            out.instr32 = ENCS(uimm, rs2_, rs1_, 0b010, 0b0100011);
++            break;
++        }
++        
++        case 0b111: { // C.FSW
++            uint32_t rs2_ = rcp(bits(h, 4, 2));
++            uint32_t rs1_ = rcp(bits(h, 9, 7));
++            uint32_t uimm = (bit(h, 5) << 6) | (bits(h, 12, 10) << 3) | (bit(h, 6) << 2);
++            out.instr32 = ENCS(uimm, rs2_, rs1_, 0b010, 0b0100111);
++            break;
++        }
++        default:
++            out.illegal = true; break;
++        }
++        break;
++
++    // ---------------- Quadrant 1 (opcode 01) ----------------
++    case 1:
++        switch (funct3) {
++        case 0b000: { // C.ADDI -> ADDI rd, rd, imm
++            uint32_t rd = bits(h, 11, 7);
++            int32_t imm = static_cast<int32_t>(sext(((bit(h,12)<<5) | bits(h,6,2)), 6));
++            //if (rd == 0) { out.illegal = true; break; } // C.NOP is ADDI x0,x0,0 (legal), handle separately
++            out.instr32 = ENCI(imm & 0xFFF, rd, 0b000, rd, 0b0010011);
++            // Special-case C.NOP:
++            if (rd == 0 && (imm == 0)) {
++                out.illegal = false;
++                out.instr32 = ENCI(0, 0, 0b000, 0, 0b0010011); // ADDI x0,x0,0
++            }
++            break;
++        }
++        case 0b001:{
++            uint32_t imm =
++                (bit(h,12)<<11) | (bit(h,8)<<10) | (bits(h,10,9)<<8) | (bit(h,6)<<7) |
++                (bit(h,7)<<6) | (bit(h,2)<<5) | (bit(h,11)<<4) | (bits(h,5,3)<<1);
++            int32_t simm = static_cast<int32_t>(sext(imm, 12));
++            uint32_t imm21 = static_cast<uint32_t>(simm) & 0x001FFFFF;
++            out.instr32 = ENCUJ(imm21, 1, 0b1101111);
++            break;
++        }
++        case 0b010: { // C.LI -> ADDI rd, x0, imm
++            uint32_t rd = bits(h, 11, 7);
++            int32_t imm = static_cast<int32_t>(sext(((bit(h,12)<<5) | bits(h,6,2)), 6));
++            if (rd == 0) { out.illegal = true; break; }
++            out.instr32 = ENCI(imm & 0xFFF, 0, 0b000, rd, 0b0010011);
++            break;
++        }
++        case 0b011: {
++            uint32_t rd = bits(h, 11, 7);
++            if (rd == 2) {
++                // C.ADDI16SP -> ADDI x2, x2, imm
++                // imm: [9|4|6|8:7|5] -> bits from h: 12|6|5|4:3|2
++                int32_t imm = (bit(h,12)<<9) | (bit(h,6)<<4) | (bit(h,5)<<6) | (bits(h,4,3)<<7) | (bit(h,2)<<5);
++                imm = static_cast<int32_t>(sext(imm, 10));
++                if (imm == 0) { out.illegal = true; break; }
++                out.instr32 = ENCI(imm & 0xFFF, 2, 0b000, 2, 0b0010011);
++            } else {
++                // C.LUI -> LUI rd, imm (rd!=x0,x2)
++                int32_t imm = static_cast<int32_t>(sext((bit(h,12)<<17) | (bits(h,6,2)<<12), 18));
++                if (rd == 0 || rd == 2 || imm == 0) { out.illegal = true; break; }
++                out.instr32 = ENCU((imm >> 12), rd, 0b0110111);
++            }
++            break;
++        }
++        case 0b100: {
++            uint32_t subfunct = bits(h, 11, 10);
++            if (subfunct == 0b00) { // C.SRLI
++                uint32_t rd_ = rcp(bits(h,9,7));
++                uint32_t sh  = (bit(h,12)<<5) | bits(h,6,2);
++                out.instr32 = ENCI(sh, rd_, 0b101, rd_, 0b0010011);
++            } else if (subfunct == 0b01) { // C.SRAI
++                uint32_t rd_ = rcp(bits(h,9,7));
++                uint32_t sh  = (bit(h,12)<<5) | bits(h,6,2);
++                out.instr32 = ENCI(sh, rd_, 0b101, rd_, 0b0010011) | (0x40000000u); // add funct7=0100000 via bit 30
++            } else if (subfunct == 0b10) { // C.ANDI
++                uint32_t rd_ = rcp(bits(h,9,7));
++                int32_t imm = static_cast<int32_t>(sext(((bit(h,12)<<5) | bits(h,6,2)), 6));
++                out.instr32 = ENCI(imm & 0xFFF, rd_, 0b111, rd_, 0b0010011);
++            } else { // 0b11: C.SUB/XOR/OR/AND (register form)
++                uint32_t rd_  = rcp(bits(h,9,7));
++                uint32_t rs2_ = rcp(bits(h,4,2));
++                uint32_t op2  = bits(h, 6,5);
++                //check if bit 12 == 0
++                switch (op2) {
++                    case 0b00: // C.SUB -> SUB rd', rd', rs2'
++                        out.instr32 = ENCR(0b0100000, rs2_, rd_, 0b000, rd_, 0b0110011); break;
++                    case 0b01: // C.XOR
++                        out.instr32 = ENCR(0b0000000, rs2_, rd_, 0b100, rd_, 0b0110011); break;
++                    case 0b10: // C.OR
++                        out.instr32 = ENCR(0b0000000, rs2_, rd_, 0b110, rd_, 0b0110011); break;
++                    case 0b11: // C.AND
++                        out.instr32 = ENCR(0b0000000, rs2_, rd_, 0b111, rd_, 0b0110011); break;
++                }
++            }
++            break;
++        }
++        case 0b101: { // C.J -> JAL x0, imm
++            uint32_t imm =
++                (bit(h,12)<<11) | (bit(h,8)<<10) | (bits(h,10,9)<<8) | (bit(h,6)<<7) |
++                (bit(h,7)<<6) | (bit(h,2)<<5) | (bit(h,11)<<4) | (bits(h,5,3)<<1);
++            int32_t simm = static_cast<int32_t>(sext(imm, 12));
++            uint32_t imm21 = static_cast<uint32_t>(simm) & 0x001FFFFF;
++            out.instr32 = ENCUJ(imm21, 0, 0b1101111);
++            break;
++        }
++        case 0b110: { // C.BEQZ -> BEQ rs1', x0, imm
++            uint32_t rs1_ = rcp(bits(h, 9,7));
++            uint32_t imm = (bit(h,12)<<8) | (bit(h,6)<<7) | (bit(h,5)<<6) | (bit(h,2)<<5) | (bits(h,11,10)<<3) | (bits(h,4,3)<<1);
++            int32_t simm = static_cast<int32_t>(sext(imm, 9));
++            uint32_t imm13 = static_cast<uint32_t>(simm) & 0x1FFF;
++            out.instr32 = ENCB(imm13, 0, rs1_, 0b000, 0b1100011);
++            break;
++        }
++        case 0b111: { // C.BNEZ -> BNE rs1', x0, imm
++            uint32_t rs1_ = rcp(bits(h, 9,7));
++            uint32_t imm = (bit(h,12)<<8) | (bit(h,6)<<7) | (bit(h,5)<<6) | (bit(h,2)<<5) | (bits(h,11,10)<<3) | (bits(h,4,3)<<1);
++            int32_t simm = static_cast<int32_t>(sext(imm, 9));
++            uint32_t imm13 = static_cast<uint32_t>(simm) & 0x1FFF;
++            out.instr32 = ENCB(imm13, 0, rs1_, 0b001, 0b1100011);
++            break;
++        }
++        default:
++            out.illegal = true; break;
++        }
++        break;
++
++    // ---------------- Quadrant 2 (opcode 10) ----------------
++    case 2:
++        switch (funct3) {
++        case 0b000: { // C.SLLI -> SLLI rd, rd, shamt
++            uint32_t rd = bits(h, 11, 7);
++            uint32_t sh = (bit(h,12)<<5) | bits(h,6,2);
++            if (rd == 0) {
++                out.illegal = true;
++                break;
++            }
++            out.instr32 = ENCI(sh, rd, 0b001, rd, 0b0010011);
++            break;
++        }
++        case 0b010: { // C.LWSP -> LW rd, offset(x2)
++            uint32_t rd = bits(h, 11, 7);
++            if (rd == 0) { 
++                out.illegal = true;
++                break;
++            }
++
++            uint32_t uimm = (bit(h, 12) << 5) | (bits(h, 6, 4) << 2) | (bits(h, 3, 2) << 6);
++            out.instr32 = ENCI(uimm, 2, 0b010, rd, 0b0000011);
++            break;
++        }
++        case 0b100: {
++            uint32_t rd  = bits(h, 11, 7);
++            uint32_t rs2 = bits(h, 6, 2);
++            uint32_t s12 = bit(h, 12);
++
++            // rs2 == 0 → JR / JALR / EBREAK or illegal
++            if (rs2 == 0) {
++                if (s12 == 0) {
++                    // C.JR
++                    // rd != 0, rs2 = 0
++                    if (rd == 0) {
++                        out.illegal = true;  // reserved encoding
++                        break;
++                    }
++                    // JALR x0, 0(rd)
++                    out.instr32 = ENCI(0, rd, 0b000, 0, 0b1100111);
++                } else {
++                    // s12 == 1, rs2 == 0
++                    if (rd == 0) {
++                        // C.EBREAK -> EBREAK (SYSTEM, imm=1)
++                        out.instr32 = 0x00100073;
++                    } else {
++                        // C.JALR
++                        // JALR x1, 0(rd)
++                        out.instr32 = ENCI(0, rd, 0b000, 1, 0b1100111);
++                    }
++                }
++            } else {
++                // rs2 != 0 → MV / ADD
++                if (rd == 0) {
++                    out.illegal = true; // rd must not be x0
++                    break;
++                }
++                if (s12 == 0) {
++                    // C.MV -> ADD rd, x0, rs2
++                    out.instr32 = ENCR(0b0000000, rs2, 0, 0b000, rd, 0b0110011);
++                } else {
++                    // C.ADD -> ADD rd, rd, rs2
++                    out.instr32 = ENCR(0b0000000, rs2, rd, 0b000, rd, 0b0110011);
++                }
++            }
++            break;
++        }
++        case 0b110: { // C.SWSP -> SW rs2, offset[7:2](x2)
++            uint32_t rs2 = bits(h, 6, 2);
++            uint32_t imm = (bits(h, 12, 9) << 2) | (bits(h, 8, 7)  << 6);  
++            out.instr32 = ENCS(imm, rs2, 2, 0b010, 0b0100011);
++            break;
++        }
++        default:
++            out.illegal = true; break;
++        }
++        break;
++
++    default:
++        out.illegal = true; break;
++    }
++    if(out.illegal){
++        std::cout << "Illegal 16-bit! Quadrant: " << quadrant << ", func3: " << funct3 << std::endl;
++    }
++    return out;
++}
+diff --git a/sim/simx/emulator.cpp b/sim/simx/emulator.cpp
+index 0770d1792..1a406577d 100644
+--- a/sim/simx/emulator.cpp
++++ b/sim/simx/emulator.cpp
+@@ -145,10 +145,20 @@ uint32_t Emulator::fetch(uint32_t wid, uint64_t uuid) {
+   __unused(uuid);
+ 
+   uint32_t instr_code = 0;
+-  this->icache_read(&instr_code, warp.PC, sizeof(uint32_t));
++  this->icache_read(&instr_code, (warp.PC & ~0x3), sizeof(uint32_t));
+ 
+   DP(1, "Fetch: code=0x" << std::hex << instr_code << std::dec << ", cid=" << core_->id() << ", wid=" << wid << ", tmask=" << warp.tmask
+-         << ", PC=0x" << std::hex << warp.PC << " (#" << std::dec << uuid << ")");
++         << ", PC=0x" << std::hex << (warp.PC & ~0x3) << " (#" << std::dec << uuid << ")");
++  return instr_code;
++}
++
++uint32_t Emulator::fetch_at_addr(uint32_t wid, uint32_t addr, uint64_t uuid) {
++  __unused(uuid);
++
++  uint32_t instr_code = 0;
++  this->icache_read(&instr_code, addr & ~0x3, sizeof(uint32_t));
++  DP(1, "Fetch: code=0x" << std::hex << instr_code << std::dec << ", cid=" << core_->id() << ", wid=" << wid << ", tmask=" << warp.tmask
++         << ", PC=0x" << std::hex << (addr & ~0x3) << " (#" << std::dec << uuid << ")");
+   return instr_code;
+ }
+ 
+@@ -186,6 +196,7 @@ instr_trace_t* Emulator::step() {
+   assert(warp.tmask.any());
+ 
+   // fetch next instruction if ibuffer is empty
++  bool fetch_skip = false;
+   if (warp.ibuffer.empty()) {
+     uint64_t uuid = 0;
+   #ifndef NDEBUG
+@@ -197,11 +208,75 @@ instr_trace_t* Emulator::step() {
+     }
+   #endif
+ 
+-    // Fetch
+-    auto instr_code = this->fetch(scheduled_warp, uuid);
++    DecompResult result;
++    if (!warp.has_valid_fetch_word) {
++        auto instr32 = this->fetch(scheduled_warp, uuid);
++        const uint16_t low  = static_cast<uint16_t>(instr32 & 0xFFFF);
++        const uint16_t high = static_cast<uint16_t>(instr32 >> 16);
++        bool pc_low = (warp.PC & 0x2) == 0;
++
++        if(pc_low){
++          if ((low & 0x3) == 0x3) {
++            //     PC=Fetch
++            //        |
++            // [32bits]
++            result = this->decompress(instr32);
++            warp.has_valid_fetch_word = false;
++            warp.instr_size = 4;
++          } else {
++            //          PC=Fetch
++            //             |
++            // [..., 16bits]
++            result = this->decompress(static_cast<uint32_t>(low));
++            warp.instr16 = high;
++            warp.has_valid_fetch_word = true;
++            warp.instr_size = 2;
++          }
++        }else{
++          if ((high & 0x3) == 0x3) {
++            //                      PC  Fetch
++            //                      |     |
++            // [..., |16bits][16bits|, ...]
++            //       |  32-bit intr | 
++            warp.instr16 = high;
++            warp.has_valid_fetch_word = true;
++
++            return nullptr;
++          } else {
++            //        PC Fetch
++            //        |    |
++            // [16bits, ...]
++            result = this->decompress(static_cast<uint32_t>(high));
++            warp.has_valid_fetch_word = false;
++            warp.instr_size = 2;
++          }
++        }
++    } else {
++      uint16_t h = warp.instr16;
++      if ((h & 0x3) == 0x3) {
++        //             Fetch     PC
++        //               |       |
++        // [..., |16bits] [16bits|, ...]
++        //       |  32-bit intr  | 
++        uint32_t base = warp.PC & ~0x3;
++        auto instr32 = this->fetch_at_addr(scheduled_warp, base+4, uuid);
++        result = this->decompress(static_cast<uint32_t>(h) | (instr32 << 16));
++        warp.instr16 = static_cast<uint16_t>(instr32 >> 16);
++        warp.has_valid_fetch_word = true;
++        warp.instr_size = 4;  
++      } else {
++        //        PC
++        //        |
++        // [16bits, ...]
++        // ---No Fetch---
++        result = this->decompress(static_cast<uint32_t>(h));
++        warp.has_valid_fetch_word = false;
++        warp.instr_size = 2;
++      }
++    }
++    assert(!result.illegal);
+ 
+-    // decode
+-    this->decode(instr_code, scheduled_warp, uuid);
++    this->decode(result.instr32, scheduled_warp, uuid);
+   } else {
+     // we have a micro-instruction in the ibuffer
+     // adjust PC back to original (incremented in execute())
+@@ -214,7 +289,7 @@ instr_trace_t* Emulator::step() {
+ 
+   // Execute
+   auto trace = this->execute(*instr, scheduled_warp);
+-
++  trace->fetch_skip = fetch_skip;
+   return trace;
+ }
+ 
+diff --git a/sim/simx/emulator.h b/sim/simx/emulator.h
+index cc783f20c..036af20ec 100644
+--- a/sim/simx/emulator.h
++++ b/sim/simx/emulator.h
+@@ -62,7 +62,9 @@ struct warp_t {
+   Word                              PC;
+   Byte                              fcsr;
+   uint32_t                          uuid;
+-
++  uint16_t                          instr16;
++  uint32_t                          instr_size;
++  bool                              has_valid_fetch_word = false;
+   warp_t(uint32_t num_threads);
+ 
+   void reset(uint64_t startup_addr);
+@@ -114,6 +116,10 @@ private:
+ 
+   uint32_t fetch(uint32_t wid, uint64_t uuid);
+ 
++  uint32_t fetch_at_addr(uint32_t wid, uint32_t addr, uint64_t uuid);
++
++  DecompResult decompress(uint32_t word);
++
+   void decode(uint32_t code, uint32_t wid, uint64_t uuid);
+ 
+   instr_trace_t* execute(const Instr &instr, uint32_t wid);
+diff --git a/sim/simx/execute.cpp b/sim/simx/execute.cpp
+index b63482905..e941d9a9d 100644
+--- a/sim/simx/execute.cpp
++++ b/sim/simx/execute.cpp
+@@ -112,7 +112,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
+   auto& warp = warps_.at(wid);
+   assert(warp.tmask.any());
+ 
+-  auto next_pc = warp.PC + 4;
++  auto next_pc = warp.PC + warp.instr_size;
+   auto next_tmask = warp.tmask;
+ 
+   auto fu_type = instr.getFUType();
+@@ -1551,11 +1551,12 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
+     }
+   }
+ 
+-  warp.PC += 4;
++  warp.PC += warp.instr_size;
+ 
+   if (warp.PC != next_pc) {
+     DP(3, "*** Next PC=0x" << std::hex << next_pc << std::dec);
+     warp.PC = next_pc;
++    warp.has_valid_fetch_word = false;
+   }
+ 
+   if (warp.tmask != next_tmask) {
+diff --git a/sim/simx/instr_trace.h b/sim/simx/instr_trace.h
+index 2ed8e2c90..d8277f03d 100644
+--- a/sim/simx/instr_trace.h
++++ b/sim/simx/instr_trace.h
+@@ -75,7 +75,7 @@ public:
+   bool eop;
+ 
+   bool fetch_stall;
+-
++  bool fetch_skip;
+   uint64_t issue_time ;
+ 
+   instr_trace_t(uint64_t uuid, const Arch& arch)
+@@ -95,6 +95,7 @@ public:
+     , sop(true)
+     , eop(true)
+     , fetch_stall(false)
++    , fetch_skip(false)
+     , issue_time(SimPlatform::instance().cycles())
+     , log_once_(false)
+   {}
+diff --git a/sim/simx/types.h b/sim/simx/types.h
+index be954a680..c916045c2 100644
+--- a/sim/simx/types.h
++++ b/sim/simx/types.h
+@@ -1667,4 +1667,10 @@ using LsuArbiter  = TxRxArbiter<LsuReq, LsuRsp>;
+ using MemArbiter  = TxRxArbiter<MemReq, MemRsp>;
+ using MemCrossBar = TxRxCrossBar<MemReq, MemRsp>;
+ 
++struct DecompResult {
++    uint32_t instr32;  // always 32-bit base-ISA encoding (RV32I)
++    uint8_t  size;     // bytes consumed at this PC: 2 or 4
++    bool     illegal;  // set if the 16-bit pattern is reserved/illegal
++};
++
+ }
+diff --git a/tests/regression/common.mk b/tests/regression/common.mk
+index dea17512b..5e35ec554 100644
+--- a/tests/regression/common.mk
++++ b/tests/regression/common.mk
+@@ -17,9 +17,9 @@ ifeq ($(XLEN),64)
+ 	STARTUP_ADDR ?= 0x180000000
+ else
+ 	ifeq ($(EXT_V_ENABLE),1)
+-		VX_CFLAGS += -march=rv32imafv_zve32f -mabi=ilp32f # vector extension
++		VX_CFLAGS += -march=rv32imafcv_zve32f -mabi=ilp32f # vector extension
+ 	else
+-		VX_CFLAGS += -march=rv32imaf -mabi=ilp32f
++		VX_CFLAGS += -march=rv32imafc -mabi=ilp32f
+ 	endif
+ 	STARTUP_ADDR ?= 0x80000000
+ endif

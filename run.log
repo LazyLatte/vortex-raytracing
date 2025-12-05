@@ -1,0 +1,3 @@
+CONFIGS=-DNUM_CORES=4
+Running: DEBUG=1 CONFIGS="-DNUM_CORES=4" make -C ./ci/../runtime/rtlsim > /dev/null
+Error building driver: ./ci/../runtime/rtlsim

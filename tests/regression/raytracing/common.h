@@ -15,6 +15,8 @@
 
 #define INVALID_IDX 0xFFFFFFFF
 
+#define BVH_WIDTH 4
+
 // additional triangle data, for texturing and shading
 struct tri_ex_t {
   float3_t N0, N1, N2;
@@ -39,10 +41,10 @@ struct bvh_quantized_node_t {
   int8_t ex, ey, ez;
   uint8_t imask; //topLevel = 1, bottom = 0
 
-  uint32_t leftRight;
+  uint32_t leftFirst;
   uint32_t leafIdx;
   
-  child_data_t children[4];
+  child_data_t children[BVH_WIDTH];
 };
 
 // BVH node struct
@@ -52,7 +54,8 @@ struct bvh_node_t {
 
   uint32_t leftFirst;
   uint32_t triCount;
-  uint32_t treeletID;
+  uint32_t childCount = 0;
+
   bool isLeaf() const { return triCount != 0; }
 
   float calculateNodeCost() const {
@@ -79,23 +82,28 @@ struct blas_node_t {
 // top-level acceleration structure
 struct tlas_node_t {
   float3_t aabbMin;
-  uint32_t leftRight;
+  uint32_t leftFirst;
 
   float3_t aabbMax;
-  uint32_t blasIdx; // bottom level acceleration structure index
-
-  bool isLeaf() const { return leftRight == 0; }
+  uint32_t blasIdx; //UINT32_MAX if not leaf
+  uint32_t triCount;
+  uint32_t start, end;
+  uint32_t childCount = 0;
+  bool isLeaf() const { return blasIdx != UINT32_MAX; }
 
   void setLeftRight(uint32_t left, uint32_t right) {
-    leftRight = (right << 16) | left;
+    leftFirst = (right << 16) | left;
   }
 
   uint32_t left() const {
-    return leftRight & 0xFFFF;
+    return leftFirst & 0xFFFF;
   }
 
   uint32_t right() const {
-    return leftRight >> 16;
+    return leftFirst >> 16;
+  }
+  float calculateNodeCost() const {
+    return surfaceArea(aabbMin, aabbMax) * triCount;
   }
 };
 

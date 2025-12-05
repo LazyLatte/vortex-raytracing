@@ -1476,7 +1476,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
       case RtuType::Trace: {
         auto trace_data = std::make_shared<RtuTraceData>(num_threads);
         trace->data = trace_data;
-
+        
         rt_unit_->traverse(wid, rd_data, trace_data.get());
         rd_write = true;
         

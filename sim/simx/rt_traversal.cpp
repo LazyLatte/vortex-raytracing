@@ -33,8 +33,8 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, RtuTraceData* trace_dat
     level = 0;
     trail.fill(0);
     base_ptr = tlas_ptr;
-    node_ptr = tlas_ptr;
-
+    node_ptr = calcNodePtr(0);
+    
     uint32_t blasIdx = 0;
     
     Ray ray = ray_buf.ray;
@@ -45,13 +45,17 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, RtuTraceData* trace_dat
     while(!exit){
 
         read_node(&node);
-
+        //std::cout << node.imask << " " << node.leafData << std::endl;
         if(!isLeaf(&node)){
             //Internal node
- 
+            // if(isTopLevel(&node)){
+            //     std::cout << node.leftFirst << std::endl;
+            // }
+            
             std::vector<ChildIntersection> intersections;
 
             for(int i=0; i<BVH_WIDTH; i++){
+                if(node.children[i].meta == 0) continue;
                 float min_x = node.px + std::ldexp(float(node.children[i].qaabb[0]), node.ex);
                 float min_y = node.py + std::ldexp(float(node.children[i].qaabb[1]), node.ey);
                 float min_z = node.pz + std::ldexp(float(node.children[i].qaabb[2]), node.ez);
@@ -109,6 +113,7 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, RtuTraceData* trace_dat
             //Leaf Node
             if(isTopLevel(&node)){
                 blasIdx = node.leafData;
+                //std::cout << blasIdx << std::endl;
                 uint32_t bvh_offset;
                 uint32_t blas_node_ptr = blas_ptr + blasIdx * BLAS_NODE_SIZE;
                 dcache_read(&bvh_offset, blas_node_ptr + 32 * sizeof(float), sizeof(uint32_t));
@@ -117,12 +122,12 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, RtuTraceData* trace_dat
                 dcache_read(&M[0], blas_node_ptr + 16 * sizeof(float), 16 * sizeof(float));
                 ray = ray_transform(ray_buf.ray, M);
                 //trace_data->pipeline_latency += RAY_TRANSFORM_LATENCY;
-
-                base_ptr = qBvh_ptr;
-                node_ptr = calcNodePtr(bvh_offset);
+                //std::cout << bvh_offset << std::endl;
+                base_ptr = qBvh_ptr + bvh_offset * sizeof(BVHNode);
+                node_ptr = base_ptr;
             }else{
                 uint32_t triCount = node.leafData;
-                uint32_t leftFirst = node.leftFirst;
+                uint32_t leftFirst = node.leftFirst + (blasIdx == 0 ? 0 : 1024); //fix!!!!!!!
 
                 for (uint32_t i = 0; i < triCount; ++i) {
                     uint32_t triIdx;
@@ -206,7 +211,7 @@ bool RestartTrailTraversal::isTopLevel(BVHNode *node){
 }
 
 bool RestartTrailTraversal::isLeaf(BVHNode *node){
-    return (isTopLevel(node) && node->leftFirst == 0) || (!isTopLevel(node) && node->leafData != 0);
+    return (isTopLevel(node) && node->leafData != UINT32_MAX) || (!isTopLevel(node) && node->leafData != 0);
 }
 
 void RestartTrailTraversal::dcache_read(void* data, uint64_t addr, uint32_t size) {

@@ -32,7 +32,6 @@ int Scene::init() {
   bvh_nodes_.resize(num_tris * 2);
   bvh_quantized_nodes_.resize(num_tris * 2);
   blas_nodes_.resize(meshes_.size());
-
   // create BVH objects
   uint32_t bvh_offset = 0;
   uint32_t tri_offset = 0;
@@ -81,7 +80,7 @@ int Scene::init() {
 
   // create TLAS
   tlas_ = new TLAS(bvh_list_, blas_nodes_.data());
-
+  
   // position meshes around Y axis
   this->arrangeMeshesAroundY(0.0f);
 
