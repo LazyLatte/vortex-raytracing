@@ -49,9 +49,10 @@ module VX_fetch import VX_gpu_pkg::*; #(
 
     wire [PC_BITS-1:0] rsp_PC;
     wire [`NUM_THREADS-1:0] rsp_tmask;
+    wire [1:0] rsp_state;
 
     VX_dp_ram #(
-        .DATAW (PC_BITS + `NUM_THREADS),
+        .DATAW (PC_BITS + `NUM_THREADS + 2),
         .SIZE  (`NUM_WARPS),
         .RDW_MODE ("R"),
         .LUTRAM (1)
@@ -62,9 +63,9 @@ module VX_fetch import VX_gpu_pkg::*; #(
         .write (icache_req_fire),
         .wren  (1'b1),
         .waddr (req_tag),
-        .wdata ({schedule_if.data.PC, schedule_if.data.tmask}),
+        .wdata ({schedule_if.data.PC, schedule_if.data.tmask, schedule_if.data.state}),
         .raddr (rsp_tag),
-        .rdata ({rsp_PC, rsp_tmask})
+        .rdata ({rsp_PC, rsp_tmask, rsp_state})
     );
 
 `ifndef L1_ENABLE
@@ -96,9 +97,8 @@ module VX_fetch import VX_gpu_pkg::*; #(
         ("%t: *** %s invalid PC=0x%0h, wid=%0d, tmask=%b (#%0d)", $time, INSTANCE_ID, to_fullPC(schedule_if.data.PC), schedule_if.data.wid, schedule_if.data.tmask, schedule_if.data.uuid))
 
     // Icache Request
-
     assign icache_req_valid = schedule_if.valid && ibuf_ready;
-    assign icache_req_addr  = schedule_if.data.PC[2-(`XLEN-PC_BITS) +: ICACHE_ADDR_WIDTH]; // 4-byte aligned addresses
+    assign icache_req_addr  = schedule_if.data.PC[2-(`XLEN-PC_BITS) +: ICACHE_ADDR_WIDTH] + (schedule_if.data.state == 2'b10 ? 1 : 0);
     assign icache_req_tag   = {schedule_if.data.uuid, req_tag};
     assign schedule_if.ready = icache_req_ready && ibuf_ready;
 
@@ -123,14 +123,54 @@ module VX_fetch import VX_gpu_pkg::*; #(
     assign icache_bus_if.req_data.data   = '0;
 
     // Icache Response
+    //assign schedule_if.dcomp_fin = fetch_if.valid && fetch_if.ready;
+    //assign fetch_if.data.is_rvc = 1'b0;
+    // assign fetch_if.valid = icache_bus_if.rsp_valid;
+    // assign fetch_if.data.tmask = rsp_tmask;
+    // assign fetch_if.data.wid   = rsp_tag;
+    // assign fetch_if.data.PC    = rsp_PC;
+    // assign fetch_if.data.instr = icache_bus_if.rsp_data.data;
+    // assign fetch_if.data.uuid  = rsp_uuid;
+    // assign icache_bus_if.rsp_ready = fetch_if.ready;
+    wire        decomp_valid_in  = icache_bus_if.rsp_valid;
+    wire        decomp_ready_in;
+    wire        decomp_valid_out;
+    wire        decomp_ready_out = fetch_if.ready;
 
-    assign fetch_if.valid = icache_bus_if.rsp_valid;
-    assign fetch_if.data.tmask = rsp_tmask;
-    assign fetch_if.data.wid   = rsp_tag;
-    assign fetch_if.data.PC    = rsp_PC;
-    assign fetch_if.data.instr = icache_bus_if.rsp_data.data;
-    assign fetch_if.data.uuid  = rsp_uuid;
-    assign icache_bus_if.rsp_ready = fetch_if.ready;
+    // drive ready back to icache
+    assign icache_bus_if.rsp_ready = decomp_ready_in;
+    
+    VX_decompress #(
+        .INSTANCE_ID (`SFORMATF(("%s-decomp", INSTANCE_ID)))
+    ) decompressor (
+        .clk           (clk),
+        .reset         (reset),
+
+        // input from icache
+        .valid_in      (decomp_valid_in),
+        .ready_in      (decomp_ready_in),
+        .PC_in         (rsp_PC),
+        .tmask_in      (rsp_tmask),
+        .wid_in        (rsp_tag),
+        .uuid_in       (rsp_uuid),
+        .state_in      (rsp_state),
+        .word_in       (icache_bus_if.rsp_data.data),
+
+        // output to fetch_if
+        .valid_out     (decomp_valid_out),
+        .ready_out     (decomp_ready_out),
+        .PC_out        (fetch_if.data.PC),
+        .tmask_out     (fetch_if.data.tmask),
+        .wid_out       (fetch_if.data.wid),
+        .uuid_out      (fetch_if.data.uuid),
+        .state_out     (fetch_if.data.next_state),
+        .instr_out     (fetch_if.data.instr),
+        .rvc_out       (fetch_if.data.rvc),
+        .incomplete_out(fetch_if.incomplete)
+    );
+
+    assign fetch_if.valid = decomp_valid_out;
+
 
 `ifdef SCOPE
 `ifdef DBG_SCOPE_FETCH

@@ -52,6 +52,7 @@ module VX_schedule import VX_gpu_pkg::*; #(
 
     reg [`NUM_WARPS-1:0][`NUM_THREADS-1:0] thread_masks, thread_masks_n;
     reg [`NUM_WARPS-1:0][PC_BITS-1:0] warp_pcs, warp_pcs_n;
+    reg [`NUM_WARPS-1:0][1:0] state, state_n;
 
     wire [NW_WIDTH-1:0]     schedule_wid;
     wire [`NUM_THREADS-1:0] schedule_tmask;
@@ -70,7 +71,7 @@ module VX_schedule import VX_gpu_pkg::*; #(
     reg [PERF_CTR_BITS-1:0] cycles;
 
     wire schedule_fire = schedule_valid && schedule_ready;
-    wire schedule_if_fire = schedule_if.valid && schedule_if.ready;
+    //wire schedule_if_fire = schedule_if.valid && schedule_if.ready;
 
     // branch
     wire [`NUM_ALU_BLOCKS-1:0]               branch_valid;
@@ -111,11 +112,25 @@ module VX_schedule import VX_gpu_pkg::*; #(
         barrier_ctrs_n  = barrier_ctrs;
         barrier_stalls_n= barrier_stalls;
         warp_pcs_n      = warp_pcs;
+        state_n         = state;
+
+        if(decode_sched_if.valid) begin
+
+            if(~decode_sched_if.stall) begin
+                warp_pcs_n[decode_sched_if.wid] = warp_pcs[decode_sched_if.wid] + from_fullPC(`XLEN'(decode_sched_if.rvc ? 2 : 4));
+            end
+
+            state_n[decode_sched_if.wid] = decode_sched_if.next_state;
+
+            if(decode_sched_if.unlock) begin
+                stalled_warps_n[decode_sched_if.wid] = 0;
+            end
+        end
 
         // decode unlock
-        if (decode_sched_if.valid && decode_sched_if.unlock) begin
-            stalled_warps_n[decode_sched_if.wid] = 0;
-        end
+        // if (decode_sched_if.valid && decode_sched_if.unlock) begin
+        //     stalled_warps_n[decode_sched_if.wid] = 0;
+        // end
 
         // CSR unlock
         if (sched_csr_if.unlock_warp) begin
@@ -193,6 +208,7 @@ module VX_schedule import VX_gpu_pkg::*; #(
             if (branch_valid[i]) begin
                 if (branch_taken[i]) begin
                     warp_pcs_n[branch_wid[i]] = branch_dest[i];
+                    state_n[branch_wid[i]] = 2'b00; // flush
                 end
                 stalled_warps_n[branch_wid[i]] = 0; // unlock warp
             end
@@ -204,9 +220,9 @@ module VX_schedule import VX_gpu_pkg::*; #(
         end
 
         // advance PC
-        if (schedule_if_fire) begin
-            warp_pcs_n[schedule_if.data.wid] = schedule_if.data.PC + from_fullPC(`XLEN'(4));
-        end
+        // if (schedule_if_fire) begin
+        //     warp_pcs_n[schedule_if.data.wid] = schedule_if.data.PC + from_fullPC(`XLEN'(4));
+        // end
     end
 
     `UNUSED_VAR (base_dcrs)
@@ -225,7 +241,7 @@ module VX_schedule import VX_gpu_pkg::*; #(
             barrier_stalls  <= '0;
             cycles          <= '0;
             wspawn.valid    <=  0;
-
+            state           <= '0;
             // activate first warp
             warp_pcs[0]     <= from_fullPC(base_dcrs.startup_addr);
             active_warps[0] <= 1;
@@ -240,7 +256,7 @@ module VX_schedule import VX_gpu_pkg::*; #(
             barrier_ctrs   <= barrier_ctrs_n;
             barrier_stalls <= barrier_stalls_n;
             is_single_warp <= (active_warps_cnt == $bits(active_warps_cnt)'(1));
-
+            state          <= state_n;
             // wspawn handling
             if (warp_ctl_if.valid && warp_ctl_if.wspawn.valid) begin
                 wspawn.valid <= 1;
@@ -327,6 +343,9 @@ module VX_schedule import VX_gpu_pkg::*; #(
         schedule_data[schedule_wid][(`NUM_THREADS + PC_BITS)-5:0]
     };
 
+    wire [1:0] schedule_state;
+    assign schedule_state = state[schedule_wid];
+
     wire [UUID_WIDTH-1:0] instr_uuid;
 `ifdef UUID_ENABLE
     VX_uuid_gen #(
@@ -343,7 +362,7 @@ module VX_schedule import VX_gpu_pkg::*; #(
 `endif
 
     VX_elastic_buffer #(
-        .DATAW (`NUM_THREADS + PC_BITS + NW_WIDTH + UUID_WIDTH),
+        .DATAW (`NUM_THREADS + PC_BITS + NW_WIDTH + UUID_WIDTH + 2),
         .SIZE  (2),  // need to buffer out ready_in
         .OUT_REG (1) // should be registered for BRAM acces in fetch unit
     ) out_buf (
@@ -351,8 +370,8 @@ module VX_schedule import VX_gpu_pkg::*; #(
         .reset     (reset),
         .valid_in  (schedule_valid),
         .ready_in  (schedule_ready),
-        .data_in   ({schedule_tmask, schedule_pc, schedule_wid, instr_uuid}),
-        .data_out  ({schedule_if.data.tmask, schedule_if.data.PC, schedule_if.data.wid, schedule_if.data.uuid}),
+        .data_in   ({schedule_tmask, schedule_pc, schedule_wid, instr_uuid, schedule_state}),
+        .data_out  ({schedule_if.data.tmask, schedule_if.data.PC, schedule_if.data.wid, schedule_if.data.uuid, schedule_if.data.state}),
         .valid_out (schedule_if.valid),
         .ready_out (schedule_if.ready)
     );

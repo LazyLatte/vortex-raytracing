@@ -562,11 +562,14 @@ module VX_decode import VX_gpu_pkg::*; #(
 
     ///////////////////////////////////////////////////////////////////////////
 
-    wire fetch_fire = fetch_if.valid && fetch_if.ready;
+    wire fetch_fire = (fetch_if.valid || fetch_if.incomplete) && fetch_if.ready;
 
     assign decode_sched_if.valid  = fetch_fire;
     assign decode_sched_if.wid    = fetch_if.data.wid;
     assign decode_sched_if.unlock = ~is_wstall;
+    assign decode_sched_if.rvc = fetch_if.data.rvc;
+    assign decode_sched_if.stall = fetch_if.incomplete;
+    assign decode_sched_if.next_state = fetch_if.data.next_state;
 
 `ifndef L1_ENABLE
     assign fetch_if.ibuf_pop = decode_if.ibuf_pop;

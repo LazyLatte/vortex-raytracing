@@ -18,6 +18,7 @@ interface VX_fetch_if import VX_gpu_pkg::*; ();
     logic  valid;
     fetch_t data;
     logic  ready;
+    logic  incomplete;
 `ifndef L1_ENABLE
     logic [`NUM_WARPS-1:0] ibuf_pop;
 `endif
@@ -25,7 +26,8 @@ interface VX_fetch_if import VX_gpu_pkg::*; ();
     modport master (
         output valid,
         output data,
-        input  ready
+        input  ready,
+        output incomplete
     `ifndef L1_ENABLE
         , input ibuf_pop
     `endif
@@ -34,7 +36,8 @@ interface VX_fetch_if import VX_gpu_pkg::*; ();
     modport slave (
         input  valid,
         input  data,
-        output ready
+        output ready,
+        input  incomplete
     `ifndef L1_ENABLE
         , output ibuf_pop
     `endif

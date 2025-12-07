@@ -16,6 +16,10 @@
 
 `include "VX_define.vh"
 
+`ifdef NDEBUG
+`undef NDEBUG
+`endif
+
 `IGNORE_UNUSED_BEGIN
 
 package VX_gpu_pkg;
@@ -561,6 +565,8 @@ package VX_gpu_pkg;
         logic [`NUM_THREADS-1:0] tmask;
         logic [PC_BITS-1:0]     PC;
         logic [31:0]            instr;
+        logic                   rvc;
+        logic [1:0]             next_state;
     } fetch_t;
 
     typedef struct packed {
@@ -676,6 +682,12 @@ package VX_gpu_pkg;
         logic [NW_WIDTH-1:0]                wid;
         logic [`NUM_THREADS-1:0]            tmask;
         logic [PC_BITS-1:0]                 PC;
+
+        //00: No buffered half word
+        //01: Buffered 16-bit instr
+        //10: Buffered half 32-bit instr
+        //11: Unused
+        logic [1:0]                         state;
     } schedule_t;
 
     `DECL_EXECUTE_T (alu_exe_t, `NUM_ALU_LANES);
