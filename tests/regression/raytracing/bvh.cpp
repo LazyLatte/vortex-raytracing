@@ -8,14 +8,15 @@
 #define BINS 8
 // BVH class implementation
 
-BVH::BVH(const tri_t *triData, const float3_t *centroids, uint32_t triCount, bvh_node_t *bvh_nodes, bvh_quantized_node_t *bvh_qnodes, uint32_t *triIndices) {
+BVH::BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t *bvh_nodes, bvh_quantized_node_t *bvh_qnodes, uint32_t *triIndices, tri_ex_t *triEx) {
   bvhNodes_ = bvh_nodes;
   bvhQNodes_ = bvh_qnodes;
   centroids_ = centroids;
   triCount_ = triCount;
   triData_ = triData;
   triIndices_ = triIndices;
-  
+  triEx_ = triEx;
+  std::cout << "Start build" <<std::endl;
   this->build();
   //visualize(bvhNodes_);
   this->quantize();
@@ -34,8 +35,6 @@ void BVH::build() {
 }
 
 void BVH::subdivide(bvh_node_t &node) {
-  //The number of children can be < BVH_WIDTH
-  //Children of a node can be mixed with internal nodes and leaf nodes
   //MAX num triangles per leaf = ???
   this->updateNodeBounds(node);
 
@@ -45,42 +44,35 @@ void BVH::subdivide(bvh_node_t &node) {
   
   std::vector<bvh_node_t> clusters;
   clusters.push_back(node);
-  float totalCost = node.calculateNodeCost();
 
   while (clusters.size() < BVH_WIDTH){
-   
-    Split bestSplit;
-    float bestCost = LARGE_FLOAT;
+    Split bestSplit{};
+    float bestDelta = 0.0f;
     int bestIdx = -1;
-
+    //std::cout << "test 1" << std::endl;
     for (int i = 0; i < clusters.size(); ++i) {
-      //if(clusters[i].triCount <= 1) continue;
-      Split s = findBestSplitPlane(clusters[i]);
-      //If s.cost == LARGE_FLOAT, it means all triangles are in the same bin => no partition happens 
-      if (s.cost < bestCost) {
-        bestCost = s.cost; 
+      auto& c = clusters[i];
+      if (c.triCount <= 1) continue;
+      
+      Split s = findBestSplitPlane(c);
+      
+      // All triangles are in the same bin => no partition happens 
+      if(s.cost == std::numeric_limits<float>::infinity()) continue;
+
+      float delta = c.calculateNodeCost() - s.cost;
+      if (delta > bestDelta) {
+        bestDelta = delta; 
         bestSplit = s; 
         bestIdx = i;
       }
-      
     }
+    //std::cout << "test 2" << std::endl;
+    if(bestIdx < 0) break;  //No improving split
 
-    if(bestIdx < 0){
-      //No more partition
-      break;
-    }
-
-    float newTotalCost = totalCost - clusters[bestIdx].calculateNodeCost() + bestCost;
-
-    if(newTotalCost >= totalCost){
-      //Not worth partitioning
-      break;
-    }
-
-    totalCost = newTotalCost;
     uint32_t leftCount = partitionTriangles(clusters[bestIdx], bestSplit);
     uint32_t rightCount = clusters[bestIdx].triCount - leftCount;
-
+    //if(leftCount == 0 || rightCount == 0) break;
+    //std::cout << leftCount << " " << rightCount << std::endl;
     assert(leftCount != 0 && rightCount != 0);
 
     bvh_node_t L, R;
@@ -93,7 +85,10 @@ void BVH::subdivide(bvh_node_t &node) {
     clusters.push_back(R);
   }
 
-  assert(totalCost < node.calculateNodeCost());
+  if(clusters.size() == 1){
+    //std::cout << "Leaf TriCount > 1" << std::endl;
+    return;
+  }
 
   uint32_t childIndices[BVH_WIDTH];
   for(int i=0; i<clusters.size(); i++){
@@ -114,29 +109,32 @@ void BVH::subdivide(bvh_node_t &node) {
 
 uint32_t BVH::partitionTriangles(const bvh_node_t &node, const Split &split) const {
   float scale = BINS / (node.centroidMax[split.axis] - node.centroidMin[split.axis]);
-  uint32_t *triPtr = triIndices_ + node.leftFirst;
+  //uint32_t *triPtr = triIndices_ + node.leftFirst;
 
   uint32_t i = 0;
   uint32_t j = node.triCount - 1;
 
   while (i <= j) {
-    uint32_t triIdx = triPtr[i];
-    auto &centroid = centroids_[triIdx];
+    //uint32_t triIdx = triPtr[i];
+    auto &centroid = centroids_[node.leftFirst + i];
     uint32_t bin = clamp(int((centroid[split.axis] - node.centroidMin[split.axis]) * scale), 0, BINS - 1);
     if (bin < split.pos) {
       i++;
     } else {
-      std::swap(triPtr[i], triPtr[j--]);
+      //std::swap(triPtr[i], triPtr[j--]);
+      std::swap(triData_[node.leftFirst + i], triData_[node.leftFirst + j]);
+      std::swap(triEx_[node.leftFirst + i], triEx_[node.leftFirst + j]);
+      std::swap(centroids_[node.leftFirst + i], centroids_[node.leftFirst + j]);
+      j--;
     }
   }
-
   return i;
 }
 
 Split BVH::findBestSplitPlane(const bvh_node_t &node) const {
-  //float bestCost = LARGE_FLOAT;
+
   Split bestSplit;
-  bestSplit.cost = LARGE_FLOAT;
+
   for (uint32_t a = 0; a < 3; a++) {
     float boundsMin = node.centroidMin[a], boundsMax = node.centroidMax[a];
     if (boundsMin == boundsMax)
@@ -153,9 +151,9 @@ Split BVH::findBestSplitPlane(const bvh_node_t &node) const {
     } bin[BINS];
 
     for (uint32_t i = 0; i < node.triCount; i++) {
-      auto triIdx = triIndices_[node.leftFirst + i];
-      auto &triangle = triData_[triIdx];
-      auto &centroid = centroids_[triIdx];
+      // triIdx = triIndices_[node.leftFirst + i];
+      auto &triangle = triData_[node.leftFirst + i];
+      auto &centroid = centroids_[node.leftFirst + i];
       int binIdx = (int)((centroid[a] - boundsMin) * scale);
       binIdx = std::max(0, std::min((int)BINS - 1, binIdx));
 
@@ -197,15 +195,15 @@ void BVH::updateNodeBounds(bvh_node_t &node) const {
   auto centroid_min = float3_t(LARGE_FLOAT);
   auto centroid_max = float3_t(-LARGE_FLOAT);
   for (uint32_t first = node.leftFirst, i = 0; i < node.triCount; i++) {
-    uint32_t triIdx = triIndices_[first + i];
-    auto &tri = triData_[triIdx];
+    //uint32_t triIdx = triIndices_[first + i];
+    auto &tri = triData_[first + i];
     node.aabbMin = fminf(node.aabbMin, tri.v0);
     node.aabbMin = fminf(node.aabbMin, tri.v1);
     node.aabbMin = fminf(node.aabbMin, tri.v2);
     node.aabbMax = fmaxf(node.aabbMax, tri.v0);
     node.aabbMax = fmaxf(node.aabbMax, tri.v1);
     node.aabbMax = fmaxf(node.aabbMax, tri.v2);
-    auto &centroid = centroids_[triIdx];
+    auto &centroid = centroids_[first + i];
     centroid_min = fminf(centroid_min, centroid);
     centroid_max = fmaxf(centroid_max, centroid);
   }
@@ -227,7 +225,10 @@ void BVH::quantize(){
     qNode.ex = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.x - node.aabbMin.x) / 255.0f)));
     qNode.ey = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.y - node.aabbMin.y) / 255.0f)));
     qNode.ez = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.z - node.aabbMin.z) / 255.0f)));
-    qNode.imask = 0;
+
+    // Right now, this is just to identify if node is toplevel or not
+    // Could be storing childnode types (internal/leaf), then traversal stack entry should include a isLeaf bit.
+    qNode.imask = 0; 
 
     if(!node.isLeaf()){
       for(int k=0; k<BVH_WIDTH; k++){
@@ -236,7 +237,7 @@ void BVH::quantize(){
         if(k < node.childCount){
           bvh_node_t child = bvhNodes_[node.leftFirst + k];
 
-          qChild.meta = 1; //fix!!
+          qChild.meta = 1; //Do we need meta info, or just a single valid bit?
 
           qChild.qaabb[0] = static_cast<uint8_t>(std::floor((child.aabbMin.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
           qChild.qaabb[1] = static_cast<uint8_t>(std::floor((child.aabbMin.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
@@ -251,6 +252,11 @@ void BVH::quantize(){
         }
         qNode.children[k] = qChild;
       }
+    }else{
+      if(node.triCount > 1){
+        std::cout << node.triCount << std::endl;
+      }
+      
     }
   }
   std::cout << "BVH Quantization ends ... (#node=" << nodeCount_ << ")" << std::endl;

@@ -130,8 +130,8 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, RtuTraceData* trace_dat
                 uint32_t leftFirst = node.leftFirst + (blasIdx == 0 ? 0 : 1024); //fix!!!!!!!
 
                 for (uint32_t i = 0; i < triCount; ++i) {
-                    uint32_t triIdx;
-                    dcache_read(&triIdx, tri_idx_ptr + (leftFirst + i) * sizeof(uint32_t), sizeof(uint32_t));
+                    uint32_t triIdx = leftFirst + i;
+                    //dcache_read(&triIdx, tri_idx_ptr + (leftFirst + i) * sizeof(uint32_t), sizeof(uint32_t));
                     
                     uint32_t tri_addr = tri_ptr + triIdx * sizeof(Triangle);
 

@@ -29,13 +29,13 @@ struct AABB {
 
 struct Split{
   uint32_t axis, pos;
-  float cost;
+  float cost =  std::numeric_limits<float>::infinity();
 };
 
 // bounding volume hierarchy, to be used as BLAS
 class BVH {
 public:
-  BVH(const tri_t *triData, const float3_t *centroids, uint32_t triCount, bvh_node_t* bvh_nodes, bvh_quantized_node_t *bvh_qnodes, uint32_t *triIndices);
+  BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t* bvh_nodes, bvh_quantized_node_t *bvh_qnodes, uint32_t *triIndices, tri_ex_t *triEx);
   ~BVH();
 
   auto &aabbMin() const { return bvhNodes_[0].aabbMin; }
@@ -59,8 +59,9 @@ private:
   void quantize();
 
   uint32_t triCount_ = 0;        // number of triangles
-  const tri_t *triData_ = nullptr; // pointer to mesh vertices
-  const float3_t *centroids_ = nullptr; // triangle centroids
+  tri_t *triData_ = nullptr; // pointer to mesh vertices
+  tri_ex_t *triEx_ = nullptr;
+  float3_t *centroids_ = nullptr; // triangle centroids
   uint32_t *triIndices_ = nullptr; // triangle indices
   bvh_node_t *bvhNodes_ = nullptr;
   bvh_quantized_node_t *bvhQNodes_ = nullptr;

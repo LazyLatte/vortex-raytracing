@@ -64,7 +64,7 @@ int Scene::init() {
     blas_node.reflectivity = mesh->reflectivity();
     // create BVH
 
-    auto bvh = new BVH(tri_buf_.data(), centroids_.data(), mesh->tri().size(), bvh_nodes_.data() + bvh_offset, bvh_quantized_nodes_.data() + bvh_offset, triIdx_buf_.data() + tri_offset);
+    auto bvh = new BVH(tri_buf_.data() + tri_offset, centroids_.data() + tri_offset, mesh->tri().size(), bvh_nodes_.data() + bvh_offset, bvh_quantized_nodes_.data() + bvh_offset, triIdx_buf_.data() + tri_offset, triEx_buf_.data() + tri_offset);
     //Treelet
     // float bestCost[bvh->nodeCount()];
     // treelet_cost_calculation(bvh->nodes(), 0, bestCost);

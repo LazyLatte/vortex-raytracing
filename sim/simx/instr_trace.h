@@ -43,13 +43,6 @@ struct SfuTraceData : public ITraceData {
   SfuTraceData(Word arg1, Word arg2) : arg1(arg1), arg2(arg2) {}
 };
 
-struct RtuTraceData : public ITraceData {
-    using Ptr = std::shared_ptr<RtuTraceData>;
-    std::vector<std::vector<mem_addr_size_t>> mem_addrs;
-    uint32_t pipeline_latency; 
-    RtuTraceData(uint32_t num_threads = 0) : mem_addrs(num_threads) {}
-};
-
 struct instr_trace_t {
 public:
   //--
