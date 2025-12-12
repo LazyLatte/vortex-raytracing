@@ -197,6 +197,7 @@ instr_trace_t* Emulator::step() {
 
   // fetch next instruction if ibuffer is empty
   bool fetch_skip = false;
+  bool decode_skip = false;
   if (warp.ibuffer.empty()) {
     uint64_t uuid = 0;
   #ifndef NDEBUG
@@ -217,16 +218,10 @@ instr_trace_t* Emulator::step() {
 
         if(pc_low){
           if ((low & 0x3) == 0x3) {
-            //     PC=Fetch
-            //        |
-            // [32bits]
             result = this->decompress(instr32);
             warp.has_valid_fetch_word = false;
             warp.instr_size = 4;
           } else {
-            //          PC=Fetch
-            //             |
-            // [..., 16bits]
             result = this->decompress(static_cast<uint32_t>(low));
             warp.instr16 = high;
             warp.has_valid_fetch_word = true;
@@ -234,18 +229,11 @@ instr_trace_t* Emulator::step() {
           }
         }else{
           if ((high & 0x3) == 0x3) {
-            //                      PC  Fetch
-            //                      |     |
-            // [..., |16bits][16bits|, ...]
-            //       |  32-bit intr | 
             warp.instr16 = high;
             warp.has_valid_fetch_word = true;
 
             return nullptr;
           } else {
-            //        PC Fetch
-            //        |    |
-            // [16bits, ...]
             result = this->decompress(static_cast<uint32_t>(high));
             warp.has_valid_fetch_word = false;
             warp.instr_size = 2;
@@ -254,10 +242,6 @@ instr_trace_t* Emulator::step() {
     } else {
       uint16_t h = warp.instr16;
       if ((h & 0x3) == 0x3) {
-        //             Fetch     PC
-        //               |       |
-        // [..., |16bits] [16bits|, ...]
-        //       |  32-bit intr  | 
         uint32_t base = warp.PC & ~0x3;
         auto instr32 = this->fetch_at_addr(scheduled_warp, base+4, uuid);
         result = this->decompress(static_cast<uint32_t>(h) | (instr32 << 16));
@@ -265,13 +249,10 @@ instr_trace_t* Emulator::step() {
         warp.has_valid_fetch_word = true;
         warp.instr_size = 4;  
       } else {
-        //        PC
-        //        |
-        // [16bits, ...]
-        // ---No Fetch---
         result = this->decompress(static_cast<uint32_t>(h));
         warp.has_valid_fetch_word = false;
         warp.instr_size = 2;
+        fetch_skip = true;
       }
     }
     assert(!result.illegal);
