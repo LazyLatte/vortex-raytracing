@@ -50,7 +50,7 @@ module VX_decode import VX_gpu_pkg::*; #(
     reg use_rd, use_rs1, use_rs2, use_rs3;
     reg is_wstall;
 
-    wire [31:0] instr = fetch_if.data.instr;
+    wire [31:0] instr = fetch_if.data.word;
     wire [6:0] opcode = instr[6:0];
     wire [1:0] funct2 = instr[26:25];
     wire [2:0] funct3 = instr[14:12];
@@ -562,14 +562,30 @@ module VX_decode import VX_gpu_pkg::*; #(
 
     ///////////////////////////////////////////////////////////////////////////
 
-    wire fetch_fire = (fetch_if.valid || fetch_if.incomplete) && fetch_if.ready;
+    wire fetch_fire = fetch_if.valid && fetch_if.ready;
+
+`ifdef DBG_TRACE_PIPELINE
+    always @(posedge clk) begin
+        if (fetch_fire && fetch_if.data.wid == 2'b10) begin
+            $display("[DECODE] PC=%08h opcode=%07b ex_type=%0d op_type=%0d xtype=%0d is_wstall=%0d unlock=%0d",
+                    to_fullPC(fetch_if.data.PC),
+                    opcode,
+                    ex_type,
+                    op_type,
+                    op_args.alu.xtype,
+                    is_wstall,
+                    ~is_wstall);
+        end
+    end
+`endif
 
     assign decode_sched_if.valid  = fetch_fire;
     assign decode_sched_if.wid    = fetch_if.data.wid;
-    assign decode_sched_if.unlock = ~is_wstall;
-    assign decode_sched_if.rvc = fetch_if.data.rvc;
-    assign decode_sched_if.stall = fetch_if.incomplete;
-    assign decode_sched_if.next_state = fetch_if.data.next_state;
+    // Only unlock when:
+    //  - this instruction does NOT require a warp stall (not a branch/jump/etc.)
+    //  - AND it is the last instruction from this icache word
+    assign decode_sched_if.unlock = ~is_wstall && fetch_if.data.last_in_word;
+
 
 `ifndef L1_ENABLE
     assign fetch_if.ibuf_pop = decode_if.ibuf_pop;

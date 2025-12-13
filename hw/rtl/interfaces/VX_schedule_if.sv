@@ -18,17 +18,26 @@ interface VX_schedule_if import VX_gpu_pkg::*; ();
     logic  valid;
     schedule_t data;
     logic  ready;
+    logic decompress_finished;
+    logic pc_incr_by_2;
+    logic [NW_WIDTH-1:0] decompress_wid;
 
     modport master (
         output valid,
         output data,
-        input  ready
+        input  ready,
+        input decompress_finished,
+        input pc_incr_by_2,
+        input decompress_wid
     );
 
     modport slave (
         input  valid,
         input  data,
-        output ready
+        output ready,
+        output decompress_finished,
+        output pc_incr_by_2,
+        output decompress_wid
     );
 
 endinterface

@@ -164,6 +164,10 @@ import VX_fpu_pkg::*;
         read_data_rw_w    = '0;
         read_addr_valid_w = 1;
         case (read_addr)
+            `VX_CSR_MCAUSE: begin
+                // Dummy mcause: always 0 (no exception)
+                read_data_ro_w = `XLEN'(0);
+            end
             `VX_CSR_MVENDORID  : read_data_ro_w = `XLEN'(`VENDOR_ID);
             `VX_CSR_MARCHID    : read_data_ro_w = `XLEN'(`ARCHITECTURE_ID);
             `VX_CSR_MIMPID     : read_data_ro_w = `XLEN'(`IMPLEMENTATION_ID);

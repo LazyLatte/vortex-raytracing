@@ -31,145 +31,17 @@ module VX_fetch import VX_gpu_pkg::*; #(
     VX_fetch_if.master      fetch_if
 );
     `UNUSED_SPARAM (INSTANCE_ID)
-    `UNUSED_VAR (reset)
+    //`UNUSED_VAR (reset)
 
-    wire icache_req_valid;
-    wire [ICACHE_ADDR_WIDTH-1:0] icache_req_addr;
-    wire [ICACHE_TAG_WIDTH-1:0] icache_req_tag;
-    wire icache_req_ready;
-
-    wire [UUID_WIDTH-1:0] rsp_uuid;
-    wire [NW_WIDTH-1:0] req_tag, rsp_tag;
-
-    wire icache_req_fire = icache_req_valid && icache_req_ready;
-
-    assign req_tag = schedule_if.data.wid;
-
-    assign {rsp_uuid, rsp_tag} = icache_bus_if.rsp_data.tag;
-
-    wire [PC_BITS-1:0] rsp_PC;
-    wire [`NUM_THREADS-1:0] rsp_tmask;
-    wire [1:0] rsp_state;
-
-    VX_dp_ram #(
-        .DATAW (PC_BITS + `NUM_THREADS + 2),
-        .SIZE  (`NUM_WARPS),
-        .RDW_MODE ("R"),
-        .LUTRAM (1)
-    ) tag_store (
-        .clk   (clk),
-        .reset (reset),
-        .read  (1'b1),
-        .write (icache_req_fire),
-        .wren  (1'b1),
-        .waddr (req_tag),
-        .wdata ({schedule_if.data.PC, schedule_if.data.tmask, schedule_if.data.state}),
-        .raddr (rsp_tag),
-        .rdata ({rsp_PC, rsp_tmask, rsp_state})
+    VX_decompressor #(
+        .INSTANCE_ID (INSTANCE_ID)
+    ) decompressor_u (
+        .clk          (clk),
+        .reset        (reset),
+        .icache_bus_if(icache_bus_if),
+        .schedule_if  (schedule_if),
+        .fetch_out_if (fetch_if)
     );
-
-`ifndef L1_ENABLE
-    // Ensure that the ibuffer doesn't fill up.
-    // This resolves potential deadlock if ibuffer fills and the LSU stalls the execute stage due to pending dcache requests.
-    // This issue is particularly prevalent when the icache and dcache are disabled and both requests share the same bus.
-    wire [`NUM_WARPS-1:0] pending_ibuf_full;
-    for (genvar i = 0; i < `NUM_WARPS; ++i) begin : g_pending_reads
-        VX_pending_size #(
-            .SIZE (`IBUF_SIZE)
-        ) pending_reads (
-            .clk   (clk),
-            .reset (reset),
-            .incr  (icache_req_fire && schedule_if.data.wid == i),
-            .decr  (fetch_if.ibuf_pop[i]),
-            `UNUSED_PIN (empty),
-            `UNUSED_PIN (alm_empty),
-            .full  (pending_ibuf_full[i]),
-            `UNUSED_PIN (alm_full),
-            `UNUSED_PIN (size)
-        );
-    end
-    wire ibuf_ready = ~pending_ibuf_full[schedule_if.data.wid];
-`else
-    wire ibuf_ready = 1'b1;
-`endif
-
-    `RUNTIME_ASSERT((!schedule_if.valid || schedule_if.data.PC != 0),
-        ("%t: *** %s invalid PC=0x%0h, wid=%0d, tmask=%b (#%0d)", $time, INSTANCE_ID, to_fullPC(schedule_if.data.PC), schedule_if.data.wid, schedule_if.data.tmask, schedule_if.data.uuid))
-
-    // Icache Request
-    assign icache_req_valid = schedule_if.valid && ibuf_ready;
-    assign icache_req_addr  = schedule_if.data.PC[2-(`XLEN-PC_BITS) +: ICACHE_ADDR_WIDTH] + (schedule_if.data.state == 2'b10 ? 1 : 0);
-    assign icache_req_tag   = {schedule_if.data.uuid, req_tag};
-    assign schedule_if.ready = icache_req_ready && ibuf_ready;
-
-    VX_elastic_buffer #(
-        .DATAW   (ICACHE_ADDR_WIDTH + ICACHE_TAG_WIDTH),
-        .SIZE    (2),
-        .OUT_REG (1) // external bus should be registered
-    ) req_buf (
-        .clk       (clk),
-        .reset     (reset),
-        .valid_in  (icache_req_valid),
-        .ready_in  (icache_req_ready),
-        .data_in   ({icache_req_addr, icache_req_tag}),
-        .data_out  ({icache_bus_if.req_data.addr, icache_bus_if.req_data.tag}),
-        .valid_out (icache_bus_if.req_valid),
-        .ready_out (icache_bus_if.req_ready)
-    );
-
-    assign icache_bus_if.req_data.flags  = '0;
-    assign icache_bus_if.req_data.rw     = 0;
-    assign icache_bus_if.req_data.byteen = '1;
-    assign icache_bus_if.req_data.data   = '0;
-
-    // Icache Response
-    //assign schedule_if.dcomp_fin = fetch_if.valid && fetch_if.ready;
-    //assign fetch_if.data.is_rvc = 1'b0;
-    // assign fetch_if.valid = icache_bus_if.rsp_valid;
-    // assign fetch_if.data.tmask = rsp_tmask;
-    // assign fetch_if.data.wid   = rsp_tag;
-    // assign fetch_if.data.PC    = rsp_PC;
-    // assign fetch_if.data.instr = icache_bus_if.rsp_data.data;
-    // assign fetch_if.data.uuid  = rsp_uuid;
-    // assign icache_bus_if.rsp_ready = fetch_if.ready;
-    wire        decomp_valid_in  = icache_bus_if.rsp_valid;
-    wire        decomp_ready_in;
-    wire        decomp_valid_out;
-    wire        decomp_ready_out = fetch_if.ready;
-
-    // drive ready back to icache
-    assign icache_bus_if.rsp_ready = decomp_ready_in;
-    
-    VX_decompress #(
-        .INSTANCE_ID (`SFORMATF(("%s-decomp", INSTANCE_ID)))
-    ) decompressor (
-        .clk           (clk),
-        .reset         (reset),
-
-        // input from icache
-        .valid_in      (decomp_valid_in),
-        .ready_in      (decomp_ready_in),
-        .PC_in         (rsp_PC),
-        .tmask_in      (rsp_tmask),
-        .wid_in        (rsp_tag),
-        .uuid_in       (rsp_uuid),
-        .state_in      (rsp_state),
-        .word_in       (icache_bus_if.rsp_data.data),
-
-        // output to fetch_if
-        .valid_out     (decomp_valid_out),
-        .ready_out     (decomp_ready_out),
-        .PC_out        (fetch_if.data.PC),
-        .tmask_out     (fetch_if.data.tmask),
-        .wid_out       (fetch_if.data.wid),
-        .uuid_out      (fetch_if.data.uuid),
-        .state_out     (fetch_if.data.next_state),
-        .instr_out     (fetch_if.data.instr),
-        .rvc_out       (fetch_if.data.rvc),
-        .incomplete_out(fetch_if.incomplete)
-    );
-
-    assign fetch_if.valid = decomp_valid_out;
 
 
 `ifdef SCOPE
@@ -224,7 +96,7 @@ module VX_fetch import VX_gpu_pkg::*; #(
             `TRACE(1, ("%t: %s req: wid=%0d, PC=0x%0h, tmask=%b (#%0d)\n", $time, INSTANCE_ID, schedule_if.data.wid, to_fullPC(schedule_if.data.PC), schedule_if.data.tmask, schedule_if.data.uuid))
         end
         if (fetch_if.valid && fetch_if.ready) begin
-            `TRACE(1, ("%t: %s rsp: wid=%0d, PC=0x%0h, tmask=%b, instr=0x%0h (#%0d)\n", $time, INSTANCE_ID, fetch_if.data.wid, to_fullPC(fetch_if.data.PC), fetch_if.data.tmask, fetch_if.data.instr, fetch_if.data.uuid))
+            `TRACE(1, ("%t: %s rsp: wid=%0d, PC=0x%0h, tmask=%b, instr=0x%0h (#%0d)\n", $time, INSTANCE_ID, fetch_if.data.wid, to_fullPC(fetch_if.data.PC), fetch_if.data.tmask, fetch_if.data.word, fetch_if.data.uuid))
         end
     end
 `endif

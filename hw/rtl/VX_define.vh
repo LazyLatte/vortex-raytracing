@@ -36,6 +36,8 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
+`define VX_CSR_MCAUSE 12'h342
+
 `define ITF_TO_AOS(prefix, itf, count, dataw) \
     wire [(count)-1:0] prefix``_valid; \
     wire [(count)-1:0][(dataw)-1:0] prefix``_data; \

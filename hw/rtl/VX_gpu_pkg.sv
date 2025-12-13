@@ -559,14 +559,29 @@ package VX_gpu_pkg;
 
     //////////////////////////// Pipeline Data Types //////////////////////////
 
+    // RVC buffer state (keep names unique / prefixed)
+    typedef enum logic [1:0] {
+        BUF_EMPTY = 2'b00,
+        BUF_RVC   = 2'b01, // buffered complete 16b compressed instruction
+        BUF_32HI  = 2'b10  // buffered high half of 32b, needs next word
+    } buf_state_e;
+
+    // Per-warp RVC buffer payload (like fetch_t)
+    typedef struct packed {
+        buf_state_e           state;
+        logic [15:0]              hw;
+        logic [PC_BITS-1:0]       pc;
+        logic [UUID_WIDTH-1:0]    uuid;
+        logic [`NUM_THREADS-1:0]  tmask;
+    } RVC_data_t;
+
     typedef struct packed {
         logic [UUID_WIDTH-1:0]  uuid;
         logic [NW_WIDTH-1:0]    wid;
         logic [`NUM_THREADS-1:0] tmask;
         logic [PC_BITS-1:0]     PC;
-        logic [31:0]            instr;
-        logic                   rvc;
-        logic [1:0]             next_state;
+        logic [31:0]            word;
+        logic                   last_in_word; // new, for handling lock/unlock
     } fetch_t;
 
     typedef struct packed {
@@ -682,12 +697,6 @@ package VX_gpu_pkg;
         logic [NW_WIDTH-1:0]                wid;
         logic [`NUM_THREADS-1:0]            tmask;
         logic [PC_BITS-1:0]                 PC;
-
-        //00: No buffered half word
-        //01: Buffered 16-bit instr
-        //10: Buffered half 32-bit instr
-        //11: Unused
-        logic [1:0]                         state;
     } schedule_t;
 
     `DECL_EXECUTE_T (alu_exe_t, `NUM_ALU_LANES);

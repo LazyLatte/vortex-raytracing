@@ -18,26 +18,17 @@ interface VX_decode_sched_if import VX_gpu_pkg::*; ();
     wire                valid;
     wire                unlock;
     wire [NW_WIDTH-1:0] wid;
-    wire                rvc;
-    wire                stall;
-    wire [1:0]          next_state;
 
     modport master (
         output valid,
         output unlock,
-        output wid,
-        output rvc,
-        output stall,
-        output next_state
+        output wid
     );
 
     modport slave (
         input valid,
         input unlock,
-        input wid,
-        input rvc,
-        input stall,
-        input next_state
+        input wid
     );
 
 endinterface

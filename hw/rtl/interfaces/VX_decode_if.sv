@@ -12,7 +12,7 @@
 // limitations under the License.
 
 `include "VX_define.vh"
-
+/* verilator lint_off UNOPTFLAT */
 interface VX_decode_if import VX_gpu_pkg::*; ();
     logic  valid;
     decode_t data;
@@ -40,3 +40,4 @@ interface VX_decode_if import VX_gpu_pkg::*; ();
     );
 
 endinterface
+/* verilator lint_on UNOPTFLAT */
