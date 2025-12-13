@@ -10,7 +10,7 @@ using namespace vortex;
 class RTUnit::Impl {
 public:
     Impl(RTUnit* simobject, const Arch &arch, const DCRS &dcrs, Core* core)
-        : simobject_(simobject)
+        : rt_sim_(simobject)
         , core_(core)
         , arch_(arch)
         , dcrs_(dcrs)
@@ -28,90 +28,94 @@ public:
     ~Impl() {}
 
     void reset() {
-        pending_reqs_.clear();
-        perf_stats_ = PerfStats();
+        rt_sim_->reset();
+        // pending_reqs_.clear();
+        // perf_stats_ = PerfStats();
     }
 
     void tick() {
-        // response
-        for(uint32_t iw = 0; iw < num_blocks_; iw++){
-            for (uint32_t t = 0; t < num_lanes_; t++) {
-                auto& dcache_rsp_port = core_->rtu_dcache_rsp_in.at(iw).at(t);
-                if (dcache_rsp_port.empty())
-                    continue;
-                auto& mem_rsp = dcache_rsp_port.front();
-                auto& entry = pending_reqs_.at(mem_rsp.tag);
-                auto trace = entry.trace;
-                DT(3, simobject_->name() << "-rt-rsp: tag=" << mem_rsp.tag << ", tid=" << t << ", " << *trace);
-                assert(entry.count);
-                --entry.count; // track remaining addresses
-                if (0 == entry.count) {
-                    auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
-                    simobject_->Outputs.at(iw).push(trace, trace_data->pipeline_latency);
-                    pending_reqs_.release(mem_rsp.tag);
-                }
-                dcache_rsp_port.pop();
-            }
-        }
+        rt_sim_->tick();
 
 
-        for (int i = 0, n = pending_reqs_.size(); i < n; ++i) {
-            if (pending_reqs_.contains(i))
-                perf_stats_.latency += pending_reqs_.at(i).count;
-        }
+        // // response
+        // for(uint32_t iw = 0; iw < num_blocks_; iw++){
+        //     for (uint32_t t = 0; t < num_lanes_; t++) {
+        //         auto& dcache_rsp_port = core_->rtu_dcache_rsp_in.at(iw).at(t);
+        //         if (dcache_rsp_port.empty())
+        //             continue;
+        //         auto& mem_rsp = dcache_rsp_port.front();
+        //         auto& entry = pending_reqs_.at(mem_rsp.tag);
+        //         auto trace = entry.trace;
+        //         DT(3, rt_sim_->name() << "-rt-rsp: tag=" << mem_rsp.tag << ", tid=" << t << ", " << *trace);
+        //         assert(entry.count);
+        //         --entry.count; // track remaining addresses
+        //         if (0 == entry.count) {
+        //             auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
+        //             rt_sim_->Outputs.at(iw).push(trace, trace_data->pipeline_latency);
+        //             pending_reqs_.release(mem_rsp.tag);
+        //         }
+        //         dcache_rsp_port.pop();
+        //     }
+        // }
 
-        // request
-        for (uint32_t iw = 0; iw  <num_blocks_; ++iw){
-            auto& input = simobject_->Inputs.at(iw);
 
-            if (input.empty())
-                continue;
+        // for (int i = 0, n = pending_reqs_.size(); i < n; ++i) {
+        //     if (pending_reqs_.contains(i))
+        //         perf_stats_.latency += pending_reqs_.at(i).count;
+        // }
 
-            auto trace = input.front();
+        // // request
+        // for (uint32_t iw = 0; iw  <num_blocks_; ++iw){
+        //     auto& input = rt_sim_->Inputs.at(iw);
 
-            if (pending_reqs_.full()) {
-                if (!trace->log_once(true)) {
-                    DT(3, "*** " << simobject_->name() << "-rt-queue-stall: " << *trace);
-                }
-                ++perf_stats_.stalls;
-                return;
-            } else {
-                trace->log_once(false);
-            }
+        //     if (input.empty())
+        //         continue;
 
-            auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
+        //     auto trace = input.front();
 
-            uint32_t addr_count = 0;
-            for (auto& mem_addr : trace_data->mem_addrs) {
-                addr_count += mem_addr.size();
-            }
+        //     if (pending_reqs_.full()) {
+        //         if (!trace->log_once(true)) {
+        //             DT(3, "*** " << rt_sim_->name() << "-rt-queue-stall: " << *trace);
+        //         }
+        //         ++perf_stats_.stalls;
+        //         return;
+        //     } else {
+        //         trace->log_once(false);
+        //     }
 
-            if (addr_count != 0) {
-                auto tag = pending_reqs_.allocate({trace, addr_count});
-                for (uint32_t t = 0; t < num_lanes_; ++t) {
-                    if (!trace->tmask.test(t))
-                        continue;
+        //     auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
 
-                    auto& dcache_req_port = core_->rtu_dcache_req_out.at(iw).at(t);
-                    for (auto& mem_addr : trace_data->mem_addrs.at(t)) {
-                        MemReq mem_req;
-                        mem_req.addr  = mem_addr.addr;
-                        mem_req.write = false;
-                        mem_req.tag   = tag;
-                        mem_req.cid   = trace->cid;
-                        mem_req.uuid  = trace->uuid;
-                        dcache_req_port.push(mem_req, 4);
-                        DT(3, simobject_->name() << "-rt-req: addr=0x" << std::hex << mem_addr.addr << ", tag=" << tag
-                            << ", tid=" << t << ", "<< trace);
-                        ++perf_stats_.reads;
-                    }
-                }
-            } else {
-                simobject_->Outputs.at(iw).push(trace, 1);
-            }
+        //     uint32_t addr_count = 0;
+        //     for (auto& mem_addr : trace_data->mem_addrs) {
+        //         addr_count += mem_addr.size();
+        //     }
 
-            input.pop();
-        }
+        //     if (addr_count != 0) {
+        //         auto tag = pending_reqs_.allocate({trace, addr_count});
+        //         for (uint32_t t = 0; t < num_lanes_; ++t) {
+        //             if (!trace->tmask.test(t))
+        //                 continue;
+
+        //             auto& dcache_req_port = core_->rtu_dcache_req_out.at(iw).at(t);
+        //             for (auto& mem_addr : trace_data->mem_addrs.at(t)) {
+        //                 MemReq mem_req;
+        //                 mem_req.addr  = mem_addr.addr;
+        //                 mem_req.write = false;
+        //                 mem_req.tag   = tag;
+        //                 mem_req.cid   = trace->cid;
+        //                 mem_req.uuid  = trace->uuid;
+        //                 dcache_req_port.push(mem_req, 4);
+        //                 DT(3, rt_sim_->name() << "-rt-req: addr=0x" << std::hex << mem_addr.addr << ", tag=" << tag
+        //                     << ", tid=" << t << ", "<< trace);
+        //                 ++perf_stats_.reads;
+        //             }
+        //         }
+        //     } else {
+        //         rt_sim_->Outputs.at(iw).push(trace, 1);
+        //     }
+
+        //     input.pop();
+        // }
     }
 
     const PerfStats& perf_stats() const {
@@ -213,7 +217,7 @@ public:
         uint32_t tri_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TRI_PTR);
         uint32_t tri_idx_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TRI_IDX_PTR);
 
-        RestartTrailTraversal rtt(tlas_ptr, blas_ptr, qBvh_ptr, tri_ptr, tri_idx_ptr, simobject_);
+        RestartTrailTraversal rtt(tlas_ptr, blas_ptr, qBvh_ptr, tri_ptr, tri_idx_ptr, rt_sim_);
 
         trace_data->pipeline_latency = 0;
 
@@ -226,7 +230,7 @@ public:
     }
 
 private:
-    RTUnit*       simobject_;
+    RTSim*       rt_sim_;
     Core*         core_;
     const Arch&   arch_;
     const DCRS&   dcrs_;
