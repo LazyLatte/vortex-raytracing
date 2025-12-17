@@ -214,9 +214,6 @@ private:
 
 #ifdef EXT_RTU_ENABLE
   RTUnit::Ptr rt_unit_;
-  std::vector<std::vector<SimPort<MemReq>>> rtu_dcache_req_out;
-  std::vector<std::vector<SimPort<MemRsp>>> rtu_dcache_rsp_in;
-  friend class RTUnit;
 #endif
 
   Emulator emulator_;

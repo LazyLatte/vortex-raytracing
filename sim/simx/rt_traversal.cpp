@@ -29,7 +29,7 @@ RestartTrailTraversal::RestartTrailTraversal(
     rt_unit_(rt_unit)
 {}
 
-void RestartTrailTraversal::traverse(RayBuffer &ray_buf, RtuTraceData* trace_data){
+void RestartTrailTraversal::traverse(RayBuffer &ray_buf, per_thread_info &thread_info){
     level = 0;
     trail.fill(0);
     base_ptr = tlas_ptr;
@@ -45,7 +45,8 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, RtuTraceData* trace_dat
     while(!exit){
 
         read_node(&node);
-        //std::cout << node.imask << " " << node.leafData << std::endl;
+        thread_info.push_req(node_ptr, sizeof(BVHNode),TransactionType::BVH_INTERNAL_NODE);
+
         if(!isLeaf(&node)){
             //Internal node
             // if(isTopLevel(&node)){
@@ -65,7 +66,6 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, RtuTraceData* trace_dat
                 float max_z = node.pz + std::ldexp(float(node.children[i].qaabb[5]), node.ez);
 
                 float d = ray_box_intersect(isTopLevel(&node) ? ray_buf.ray : ray, min_x, min_y, min_z, max_x, max_y, max_z);
-                //trace_data->pipeline_latency += RAY_BOX_INTERSECTION_LATENCY;
 
                 if(d < ray_buf.hit.dist){
                     intersections.emplace_back(d, i);
@@ -121,7 +121,7 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, RtuTraceData* trace_dat
                 float M[16];
                 dcache_read(&M[0], blas_node_ptr + 16 * sizeof(float), 16 * sizeof(float));
                 ray = ray_transform(ray_buf.ray, M);
-                //trace_data->pipeline_latency += RAY_TRANSFORM_LATENCY;
+
                 //std::cout << bvh_offset << std::endl;
                 base_ptr = qBvh_ptr + bvh_offset * sizeof(BVHNode);
                 node_ptr = base_ptr;
@@ -137,10 +137,10 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, RtuTraceData* trace_dat
 
                     Triangle tri;
                     dcache_read(&tri, tri_addr, sizeof(Triangle));
+                    thread_info.push_req(tri_addr, sizeof(Triangle),TransactionType::BVH_QUAD_LEAF); //?
 
                     float bx, by, bz;
                     float d = ray_tri_intersect(ray, tri, bx, by, bz);
-                    //trace_data->pipeline_latency += RAY_TRI_INTERSECTION_LATENCY;
 
                     if (d < ray_buf.hit.dist) {
                         ray_buf.hit.dist = d;

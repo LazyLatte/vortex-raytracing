@@ -43,6 +43,7 @@ endif
 ifneq ($(findstring -DEXT_RTU_ENABLE, $(CONFIGS)),)
   	SRCS += $(SRC_DIR)/rt_unit.cpp
 	SRCS += $(SRC_DIR)/rt_traversal.cpp
+	SRCS += $(SRC_DIR)/rt_sim.cpp
 endif
 
 # Debugging

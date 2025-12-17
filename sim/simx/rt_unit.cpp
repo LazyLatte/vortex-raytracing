@@ -1,16 +1,17 @@
 #include "rt_unit.h"
 #include "rt_traversal.h"
 #include "core.h"
+#include "rt_sim.h"
 #include <VX_config.h>
 #include <vector>
 
-#define MEM_QUEUE_SIZE 32
 using namespace vortex;
 
 class RTUnit::Impl {
 public:
     Impl(RTUnit* simobject, const Arch &arch, const DCRS &dcrs, Core* core)
-        : rt_sim_(simobject)
+        : simobject_(simobject)
+        , rt_sim_(new RTSim(simobject))
         , core_(core)
         , arch_(arch)
         , dcrs_(dcrs)
@@ -18,102 +19,32 @@ public:
         , num_blocks_(NUM_RTU_BLOCKS)
         , num_lanes_(NUM_RTU_LANES)
         , ray_buffers_(arch.num_warps())
-        , pending_reqs_(MEM_QUEUE_SIZE)
     {
         for (uint32_t i = 0; i < arch.num_warps(); ++i) {
             ray_buffers_.at(i).resize(arch.num_threads());
         }
     }
 
-    ~Impl() {}
+    ~Impl() {
+        delete rt_sim_;
+    }
 
     void reset() {
         rt_sim_->reset();
         // pending_reqs_.clear();
-        // perf_stats_ = PerfStats();
+        perf_stats_ = PerfStats();
     }
 
     void tick() {
         rt_sim_->tick();
-
-
-        // // response
-        // for(uint32_t iw = 0; iw < num_blocks_; iw++){
-        //     for (uint32_t t = 0; t < num_lanes_; t++) {
-        //         auto& dcache_rsp_port = core_->rtu_dcache_rsp_in.at(iw).at(t);
-        //         if (dcache_rsp_port.empty())
-        //             continue;
-        //         auto& mem_rsp = dcache_rsp_port.front();
-        //         auto& entry = pending_reqs_.at(mem_rsp.tag);
-        //         auto trace = entry.trace;
-        //         DT(3, rt_sim_->name() << "-rt-rsp: tag=" << mem_rsp.tag << ", tid=" << t << ", " << *trace);
-        //         assert(entry.count);
-        //         --entry.count; // track remaining addresses
-        //         if (0 == entry.count) {
-        //             auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
-        //             rt_sim_->Outputs.at(iw).push(trace, trace_data->pipeline_latency);
-        //             pending_reqs_.release(mem_rsp.tag);
-        //         }
-        //         dcache_rsp_port.pop();
-        //     }
-        // }
-
-
-        // for (int i = 0, n = pending_reqs_.size(); i < n; ++i) {
-        //     if (pending_reqs_.contains(i))
-        //         perf_stats_.latency += pending_reqs_.at(i).count;
-        // }
-
-        // // request
         // for (uint32_t iw = 0; iw  <num_blocks_; ++iw){
-        //     auto& input = rt_sim_->Inputs.at(iw);
+        //     auto& input = simobject_->Inputs.at(iw);
 
         //     if (input.empty())
         //         continue;
 
         //     auto trace = input.front();
-
-        //     if (pending_reqs_.full()) {
-        //         if (!trace->log_once(true)) {
-        //             DT(3, "*** " << rt_sim_->name() << "-rt-queue-stall: " << *trace);
-        //         }
-        //         ++perf_stats_.stalls;
-        //         return;
-        //     } else {
-        //         trace->log_once(false);
-        //     }
-
-        //     auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
-
-        //     uint32_t addr_count = 0;
-        //     for (auto& mem_addr : trace_data->mem_addrs) {
-        //         addr_count += mem_addr.size();
-        //     }
-
-        //     if (addr_count != 0) {
-        //         auto tag = pending_reqs_.allocate({trace, addr_count});
-        //         for (uint32_t t = 0; t < num_lanes_; ++t) {
-        //             if (!trace->tmask.test(t))
-        //                 continue;
-
-        //             auto& dcache_req_port = core_->rtu_dcache_req_out.at(iw).at(t);
-        //             for (auto& mem_addr : trace_data->mem_addrs.at(t)) {
-        //                 MemReq mem_req;
-        //                 mem_req.addr  = mem_addr.addr;
-        //                 mem_req.write = false;
-        //                 mem_req.tag   = tag;
-        //                 mem_req.cid   = trace->cid;
-        //                 mem_req.uuid  = trace->uuid;
-        //                 dcache_req_port.push(mem_req, 4);
-        //                 DT(3, rt_sim_->name() << "-rt-req: addr=0x" << std::hex << mem_addr.addr << ", tag=" << tag
-        //                     << ", tid=" << t << ", "<< trace);
-        //                 ++perf_stats_.reads;
-        //             }
-        //         }
-        //     } else {
-        //         rt_sim_->Outputs.at(iw).push(trace, 1);
-        //     }
-
+        //     simobject_->Outputs.at(iw).push(trace, 1);
         //     input.pop();
         // }
     }
@@ -217,20 +148,22 @@ public:
         uint32_t tri_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TRI_PTR);
         uint32_t tri_idx_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TRI_IDX_PTR);
 
-        RestartTrailTraversal rtt(tlas_ptr, blas_ptr, qBvh_ptr, tri_ptr, tri_idx_ptr, rt_sim_);
+        
+        RestartTrailTraversal rtt(tlas_ptr, blas_ptr, qBvh_ptr, tri_ptr, tri_idx_ptr, simobject_);
 
-        trace_data->pipeline_latency = 0;
+        //trace_data->pipeline_latency = 0;
 
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             RayBuffer &ray_buffer = ray_buffers_.at(wid).at(tid);
             ray_buffer.hit.dist = LARGE_FLOAT;
-            rtt.traverse(ray_buffer, trace_data);
+            rtt.traverse(ray_buffer, trace_data->m_per_scalar_thread[tid]);
             rd_data[tid].i = *reinterpret_cast<uint32_t*>(&ray_buffer.hit.dist);
         }
     }
 
 private:
-    RTSim*       rt_sim_;
+    RTUnit*       simobject_;
+    RTSim*        rt_sim_;
     Core*         core_;
     const Arch&   arch_;
     const DCRS&   dcrs_;
@@ -239,13 +172,6 @@ private:
     uint32_t num_blocks_;
     uint32_t num_lanes_;
     std::vector<std::vector<RayBuffer>> ray_buffers_;
-
-    struct pending_req_t {
-        instr_trace_t* trace;
-        uint32_t count;
-    };
-
-    HashTable<pending_req_t> pending_reqs_;
 };
 
 RTUnit::RTUnit(const SimContext &ctx, const char* name, const Arch &arch, const DCRS &dcrs, Core* core)
@@ -253,6 +179,8 @@ RTUnit::RTUnit(const SimContext &ctx, const char* name, const Arch &arch, const 
     , Inputs(ISSUE_WIDTH, this)
 	, Outputs(ISSUE_WIDTH, this)
 	, impl_(new Impl(this, arch, dcrs, core))
+    , rtu_dcache_req_out(NUM_RTU_BLOCKS, std::vector<SimPort<MemReq>>(NUM_RTU_LANES, this))
+    , rtu_dcache_rsp_in(NUM_RTU_BLOCKS, std::vector<SimPort<MemRsp>>(NUM_RTU_LANES, this))
 {}
 
 RTUnit::~RTUnit() {

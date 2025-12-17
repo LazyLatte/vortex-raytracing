@@ -47,8 +47,6 @@ Core::Core(const SimContext& ctx,
 #endif
 #ifdef EXT_RTU_ENABLE
   , rt_unit_(RTUnit::Create("rtu", arch, dcrs, this))
-  , rtu_dcache_req_out(NUM_RTU_BLOCKS, std::vector<SimPort<MemReq>>(NUM_RTU_LANES, this))
-  , rtu_dcache_rsp_in(NUM_RTU_BLOCKS, std::vector<SimPort<MemRsp>>(NUM_RTU_LANES, this))
 #endif
   , emulator_(arch, dcrs, this)
   , ibuffers_(arch.num_warps(), IBUF_SIZE)
@@ -158,8 +156,8 @@ Core::Core(const SimContext& ctx,
   // connect RTU
   for (uint32_t b = 0; b < NUM_RTU_BLOCKS; ++b) {
     for (uint32_t c = 0; c < DCACHE_CHANNELS; ++c) {
-      rtu_dcache_req_out.at(b).at(c).bind(&dcache_arbs.at(b).at(c)->ReqIn.at(1));
-      dcache_arbs.at(b).at(c)->RspIn.at(1).bind(&rtu_dcache_rsp_in.at(b).at(c));
+      rt_unit_->rtu_dcache_req_out.at(b).at(c).bind(&dcache_arbs.at(b).at(c)->ReqIn.at(1));
+      dcache_arbs.at(b).at(c)->RspIn.at(1).bind(&rt_unit_->rtu_dcache_rsp_in.at(b).at(c));
     }
   }
 #endif
