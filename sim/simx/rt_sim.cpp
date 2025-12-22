@@ -14,17 +14,14 @@ RTSim::RTSim(RTUnit* simobject/*, const Config& config*/)
   : simobject_(simobject)
   , num_blocks_(NUM_RTU_BLOCKS)
   , num_lanes_(NUM_RTU_LANES)
-  //, warp_buffers_(MAX_NUM_WARP_BUFFERS)
   , pending_reqs_(MEM_QUEUE_SIZE)
+  , current_wid(-1)
 {}
 
-RTSim::~RTSim(){
-
-}
+RTSim::~RTSim(){}
 
 void RTSim::add_warp(){
   if (warp_buffers_.size() >= MAX_NUM_WARP_BUFFERS) {
-      //++perf_stats_.stalls;
       return;
   }
   
@@ -34,6 +31,7 @@ void RTSim::add_warp(){
     if (!input.empty()){
       auto trace = input.front();
       warp_buffers_.push_back(trace);
+      warp_latencies_.insert({trace->wid, 0});
       input.pop();
       return;
     }
@@ -48,16 +46,25 @@ void RTSim::remove_warp(instr_trace_t *target_trace){
   if (it != warp_buffers_.end())
     warp_buffers_.erase(it);
   else
-    std::cout << "Cannot remove absent warp!!" << std::endl;
+    std::cout << "Cannot remove non-existent warp!!" << std::endl;
 }
 
-void RTSim::schedule_warp(instr_trace_t **scheduled_trace){
+instr_trace_t* RTSim::get_warp_trace(int wid){
+  for(instr_trace_t *trace : warp_buffers_){
+    if(trace->wid == wid){
+      return trace;
+    }
+  }
+  return nullptr;
+}
+
+void RTSim::schedule_warp(){
   if (mem_store_q.empty()) {
     // Choose next warp
 
     // Return if there are no warps in the RT unit
     if (warp_buffers_.empty()){
-      *scheduled_trace = nullptr;
+      current_wid = -1;
       return;
     }
         
@@ -66,20 +73,17 @@ void RTSim::schedule_warp(instr_trace_t **scheduled_trace){
       for (instr_trace_t *trace : warp_buffers_) {
         auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
         if (!trace_data->is_stalled()) { 
-          *scheduled_trace = trace;
+          current_wid = trace->wid;
           break;
         }
       }
-      // if (!scheduled_trace->empty()){
-      //   remove_warp(scheduled_trace);
-      // }
     }
   }
-  // Get cycle status
-  // if (!rt_inst.empty()) rt_inst.track_rt_cycles(true);
-  // for (auto it=m_current_warps.begin(); it!=m_current_warps.end(); it++) {
-  //   (it->second).track_rt_cycles(false);
-  // }
+  // Update cycle status
+  for (instr_trace_t *trace : warp_buffers_) {
+    auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
+    trace_data->track_rt_cycles(trace->wid == current_wid, trace->tmask);
+  }
 }
 
 void RTSim::process_intersection_delay(){
@@ -114,14 +118,15 @@ void RTSim::process_memory_response(){
       auto rsp_trace = entry.trace;
       auto rsp_addr = entry.addr;
       process_memory_response(rsp_trace, rsp_addr);
-
       pending_reqs_.release(mem_rsp.tag);
       dcache_rsp_port.pop();
     }
   }
 }
 
-void RTSim::process_memory_request(instr_trace_t *trace){
+void RTSim::process_memory_request(){
+  auto trace = get_warp_trace(current_wid);
+
   if(trace == nullptr) return;
   //if (!inst.active_count()) return;
   
@@ -130,61 +135,103 @@ void RTSim::process_memory_request(instr_trace_t *trace){
     return;
   }
 
-  RTMemoryTransactionRecord next_access = trace_data->get_next_rt_mem_transaction();
-
-  auto tag = pending_reqs_.allocate({trace, next_access.addr});
-
-  MemReq mem_req;
-  mem_req.addr  = next_access.addr;
-  mem_req.write = false;
-  mem_req.tag   = tag;
-  mem_req.cid   = trace->cid;
-  mem_req.uuid  = trace->uuid;
-
   auto& dcache_req_port = simobject_->rtu_dcache_req_out.at(0).at(0); //???
-  dcache_req_port.push(mem_req, 1);
+
+  if (!mem_store_q.empty()) {
+    auto next_store = mem_store_q.front();
+    uint32_t next_addr = next_store.second;
+    uint32_t warp_uid = next_store.first;
+    auto tag = pending_reqs_.allocate({trace, next_addr});
+
+    MemReq mem_req;
+    mem_req.addr  = next_addr;
+    mem_req.write = true;
+    mem_req.tag   = tag;
+    mem_req.cid   = trace->cid; //fix
+    mem_req.uuid  = trace->uuid; //fix
+
+    dcache_req_port.push(mem_req, 1);
+    mem_store_q.pop_front();
+  }else{
+    RTMemoryTransactionRecord next_access = trace_data->get_next_rt_mem_transaction();
+
+    auto tag = pending_reqs_.allocate({trace, next_access.addr});
+
+    MemReq mem_req;
+    mem_req.addr  = next_access.addr;
+    mem_req.write = false;
+    mem_req.tag   = tag;
+    mem_req.cid   = trace->cid;
+    mem_req.uuid  = trace->uuid;
+
+    dcache_req_port.push(mem_req, 1);
+  }
 }
 
 void RTSim::check_completion(){
   // Check to see if any warps are complete
-  //instr_trace_t *completed_trace = nullptr;
   for (instr_trace_t *trace : warp_buffers_) {
     auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
-   // RT_DPRINTF("Checking warp inst uid: %d\n", debug_inst.get_uid());
+
     // A completed warp has no more memory accesses and all the intersection delays are complete and has no pending writes
     if (trace_data->rt_mem_accesses_empty() && trace_data->rt_intersection_delay_done() && !trace_data->has_pending_writes()) {
-      //RT_DPRINTF("Shader %d: Warp %d (uid: %d) completed!\n", m_sid, it->second.warp_id(), it->first);
-      //completed_trace = trace;
-      // n_warps--;
-      // assert(n_warps >= 0 && n_warps <= MAX_NUM_WARP_BUFFERS);
-      simobject_->Outputs.at(0).push(trace, 1);
+      perf_stats_.rt_total_warps++;
+      perf_stats_.rt_total_warp_latency += warp_latencies_[trace->wid];
+
+      unsigned long long total_thread_cycles = 0;
+      for (unsigned i=0; i<trace_data->m_per_scalar_thread.size(); i++) {
+        if (trace->tmask.test(i)) {
+          unsigned *latency_dist = trace_data->get_latency_dist(i);
+          
+          unsigned long long thread_cycles = 1; // trace complete takes 1 cycle
+          for (unsigned i=0; i<warp_statuses; i++) {
+              for (unsigned j=0; j<ray_statuses; j++) {
+                  if(j!=trace_complete){
+                    thread_cycles += latency_dist[i*ray_statuses + j];
+                  }
+              }
+          }
+          total_thread_cycles += thread_cycles;
+          perf_stats_.add_rt_latency_dist(latency_dist);
+          //std::cout << thread_cycles << " ";
+        }
+      }
+      //std::cout << ": " << warp_latencies_[trace->wid] << std::endl;
+
+      float avg_thread_cycles = (float)total_thread_cycles / trace_data->m_per_scalar_thread.size();
+      perf_stats_.rt_total_thread_latency += avg_thread_cycles;
+
+      float rt_simt_efficiency = (float)total_thread_cycles / (trace_data->m_per_scalar_thread.size() * warp_latencies_[trace->wid]);
+      perf_stats_.rt_total_simt_efficiency += rt_simt_efficiency;
+      
+      //std::cout << rt_simt_efficiency << std::endl;
+      simobject_->Outputs.at(0).push(trace, warp_latencies_[trace->wid]);
+      warp_latencies_.erase(trace->wid);
       remove_warp(trace);
-    }else{
-      //RT_DPRINTF("Cycle: %d, Warp inst uid: %d not done. rt_mem_accesses_empty: %d, rt_intersection_delay_done: %d, no pending_writes: %d\n", GPGPU_Context()->the_gpgpusim->g_the_gpu->gpu_sim_cycle, debug_inst.get_uid(), it->second.rt_mem_accesses_empty(), it->second.rt_intersection_delay_done(), !it->second.has_pending_writes());
     }
   }
-  
-  // Remove complete warp
-  // if (completed_trace != nullptr) {
-  //   warp_buffers_.erase(completed_trace);
-  // }
-  
-  //assert(n_warps == warp_buffers_.size());
+}
+
+void RTSim::cycle(){
+  for (auto it = warp_latencies_.begin(); it != warp_latencies_.end(); ++it){
+    it->second++;
+  }
 }
 
 void RTSim::tick(){
   process_intersection_delay();
   process_memory_response();
   //writeback()
+  
   add_warp();
+  schedule_warp();
+  cycle(); // latency++
 
-  instr_trace_t *trace;
-  schedule_warp(&trace);
-  process_memory_request(trace);
-
+  process_memory_request();
   check_completion();
 }
 
 void RTSim::reset(){
   pending_reqs_.clear();
+  perf_stats_ = RTUnit::PerfStats();
 }

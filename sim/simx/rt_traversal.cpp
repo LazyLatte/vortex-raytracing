@@ -45,7 +45,7 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, per_thread_info &thread
     while(!exit){
 
         read_node(&node);
-        thread_info.push_req(node_ptr, sizeof(BVHNode),TransactionType::BVH_INTERNAL_NODE);
+        thread_info.RT_mem_accesses.emplace_back(node_ptr, sizeof(BVHNode),TransactionType::BVH_INTERNAL_NODE);
 
         if(!isLeaf(&node)){
             //Internal node
@@ -137,7 +137,7 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, per_thread_info &thread
 
                     Triangle tri;
                     dcache_read(&tri, tri_addr, sizeof(Triangle));
-                    thread_info.push_req(tri_addr, sizeof(Triangle),TransactionType::BVH_QUAD_LEAF); //?
+                    
 
                     float bx, by, bz;
                     float d = ray_tri_intersect(ray, tri, bx, by, bz);
@@ -149,6 +149,10 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, per_thread_info &thread
                         ray_buf.hit.bz = bz;
                         ray_buf.hit.blasIdx = blasIdx;
                         ray_buf.hit.triIdx = triIdx;
+                        
+                        thread_info.RT_mem_accesses.emplace_back(tri_addr, sizeof(Triangle),TransactionType::BVH_QUAD_LEAF_HIT);
+                    }else{
+                        thread_info.RT_mem_accesses.emplace_back(tri_addr, sizeof(Triangle),TransactionType::BVH_QUAD_LEAF);
                     }
                 }
 

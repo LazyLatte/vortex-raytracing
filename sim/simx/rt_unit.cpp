@@ -15,7 +15,6 @@ public:
         , core_(core)
         , arch_(arch)
         , dcrs_(dcrs)
-        , perf_stats_()
         , num_blocks_(NUM_RTU_BLOCKS)
         , num_lanes_(NUM_RTU_LANES)
         , ray_buffers_(arch.num_warps())
@@ -31,26 +30,14 @@ public:
 
     void reset() {
         rt_sim_->reset();
-        // pending_reqs_.clear();
-        perf_stats_ = PerfStats();
     }
 
     void tick() {
         rt_sim_->tick();
-        // for (uint32_t iw = 0; iw  <num_blocks_; ++iw){
-        //     auto& input = simobject_->Inputs.at(iw);
-
-        //     if (input.empty())
-        //         continue;
-
-        //     auto trace = input.front();
-        //     simobject_->Outputs.at(iw).push(trace, 1);
-        //     input.pop();
-        // }
     }
 
     const PerfStats& perf_stats() const {
-        return perf_stats_;
+        return rt_sim_->perf_stats();
     }
 
     void get_csr(uint32_t addr, uint32_t wid, uint32_t tid, Word* value){
@@ -151,8 +138,6 @@ public:
         
         RestartTrailTraversal rtt(tlas_ptr, blas_ptr, qBvh_ptr, tri_ptr, tri_idx_ptr, simobject_);
 
-        //trace_data->pipeline_latency = 0;
-
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             RayBuffer &ray_buffer = ray_buffers_.at(wid).at(tid);
             ray_buffer.hit.dist = LARGE_FLOAT;
@@ -167,7 +152,6 @@ private:
     Core*         core_;
     const Arch&   arch_;
     const DCRS&   dcrs_;
-    PerfStats     perf_stats_;
 
     uint32_t num_blocks_;
     uint32_t num_lanes_;

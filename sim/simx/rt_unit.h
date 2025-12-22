@@ -13,21 +13,38 @@ class RTSim;
 class RTUnit : public SimObject<RTUnit> {
 public:
 	struct PerfStats {
-        uint64_t stalls;
-        uint64_t reads;
-        uint64_t latency;
+        // uint64_t rt_total_cycles;
+        // uint64_t rt_mem_store_q_cycles;
+        unsigned long long rt_total_warp_latency;
+        unsigned long long rt_total_thread_latency;
+        double rt_total_simt_efficiency;
+        // double rt_total_warp_occupancy;
+        unsigned rt_total_warps;
+        unsigned rt_latency_counter;
+        unsigned long long rt_latency_dist[warp_statuses][ray_statuses] = {};
 
         PerfStats()
-            : stalls(0)
-            , reads(0)
-            , latency(0)
+            : rt_total_warp_latency(0)
+            , rt_total_thread_latency(0)
+            , rt_total_simt_efficiency(0.0)
+            , rt_total_warps(0)
+            , rt_latency_counter(0)
         {}
 
-        PerfStats& operator+=(const PerfStats& rhs) {
-            this->reads   += rhs.reads;
-            this->latency += rhs.latency;
-            this->stalls  += rhs.stalls;
-            return *this;
+        // PerfStats& operator+=(const PerfStats& rhs) {
+        //     this->reads   += rhs.reads;
+        //     this->latency += rhs.latency;
+        //     this->stalls  += rhs.stalls;
+        //     return *this;
+        // }
+
+        void add_rt_latency_dist(unsigned *update) {
+            for (unsigned i=0; i<warp_statuses; i++) {
+                for (unsigned j=0; j<ray_statuses; j++) {
+                    rt_latency_dist[i][j] += update[i*ray_statuses + j];
+                }
+            }
+            rt_latency_counter++;
         }
 	};
   

@@ -46,25 +46,24 @@ struct RTMemoryTransactionRecord {
     uint32_t size;
     TransactionType type;
     RTMemStatus status;
+    RTMemoryTransactionRecord(){}
+    RTMemoryTransactionRecord(uint32_t addr, uint32_t size, TransactionType type)
+    : addr(addr), size(size), type(type), status(RT_MEM_UNMARKED){}
 };
 
-typedef struct MemoryStoreTransactionRecord {
-    MemoryStoreTransactionRecord(void* address, uint32_t size, StoreTransactionType type)
-    : address(address), size(size), type(type) {}
+struct MemoryStoreTransactionRecord {
     void* address;
     uint32_t size;
     StoreTransactionType type;
-} MemoryStoreTransactionRecord;
+
+    MemoryStoreTransactionRecord(void* address, uint32_t size, StoreTransactionType type)
+    : address(address), size(size), type(type) {}
+
+};
 
 struct per_thread_info {
-  // per_thread_info();
-  // ~per_thread_info();
-  //dram_callback_t callback;
-  //uint32_t memreqaddr[MAX_ACCESSES_PER_INSN_PER_THREAD];  // effective address,
-                                                          // upto 8 different
-                                                          // requests (to support
-                                                          // 32B access in 8 chunks
-                                                          // of 4B each)
+  per_thread_info(){}
+  ~per_thread_info(){}
                                                   
   // RT variables    
   std::deque<RTMemoryTransactionRecord> RT_mem_accesses;
@@ -72,19 +71,10 @@ struct per_thread_info {
   bool ray_intersect = false;
   //Ray ray_properties;
   unsigned intersection_delay;
-  unsigned long long end_cycle;
   unsigned status_num_cycles[warp_statuses][ray_statuses] = {};
-  unsigned m_uid;
-  // void clear_mem_accesses() {
-  //   RT_mem_accesses.clear();
-  // }
-  void push_req(uint32_t addr, uint32_t size, TransactionType type) {
-    RTMemoryTransactionRecord mem_req;
-    mem_req.addr = addr;
-    mem_req.size = size;
-    mem_req.type = type;
-    mem_req.status = RT_MEM_UNMARKED;
-    RT_mem_accesses.push_front(mem_req);
+
+  void clear_mem_accesses() {
+    RT_mem_accesses.clear();
   }
 };
 
@@ -98,7 +88,6 @@ struct RtuTraceData : public ITraceData {
   std::set<uint32_t> m_pending_writes;
   RtuTraceData(uint32_t num_threads = 0) : m_per_scalar_thread(num_threads) {}
 
-  bool thread_active(uint32_t thread) const { return false; /* m_warp_active_mask.test(thread);*/}
   bool has_pending_writes() { return !m_pending_writes.empty(); }
   bool rt_mem_accesses_empty(){
     bool empty = true;
@@ -160,21 +149,21 @@ struct RtuTraceData : public ITraceData {
     return next_access;
   }
 
-  void undo_rt_access(uint32_t addr){
-    std::pair<uint32_t, uint32_t> address_size_pair (addr, 32);
-    assert (m_next_rt_accesses_set.find(address_size_pair) == m_next_rt_accesses_set.end());
+  // void undo_rt_access(uint32_t addr){
+  //   std::pair<uint32_t, uint32_t> address_size_pair (addr, 32);
+  //   assert (m_next_rt_accesses_set.find(address_size_pair) == m_next_rt_accesses_set.end());
     
-    // Repackage address into a transaction record
-    RTMemoryTransactionRecord mem_record;
-    mem_record.addr = addr;
-    mem_record.size = 32;
-    // Already in queue
-    mem_record.status = RT_MEM_AWAITING;
+  //   // Repackage address into a transaction record
+  //   RTMemoryTransactionRecord mem_record;
+  //   mem_record.addr = addr;
+  //   mem_record.size = 32;
+  //   // Already in queue
+  //   mem_record.status = RT_MEM_AWAITING;
 
-    m_next_rt_accesses.push_front(mem_record);
-    m_next_rt_accesses_set.insert(address_size_pair);
-    //RT_DPRINTF("UNDO: 0x%x added back to queue\n", addr);
-  }
+  //   m_next_rt_accesses.push_front(mem_record);
+  //   m_next_rt_accesses_set.insert(address_size_pair);
+  //   //RT_DPRINTF("UNDO: 0x%x added back to queue\n", addr);
+  // }
 
   unsigned dec_thread_latency(std::deque<std::pair<uint32_t, uint32_t> > &store_queue) { 
     // Track number of threads performing intersection tests
@@ -305,14 +294,14 @@ struct RtuTraceData : public ITraceData {
     return active_threads;
   }
 
-  void track_rt_cycles(bool active) {
+  void track_rt_cycles(bool active, ThreadMask &tmask) {
     bool stalled = is_stalled();
     unsigned warp_status = active ? warp_executing : stalled ? warp_stalled : warp_waiting;
 
     // Check progress of each thread
     for (unsigned i=0; i<m_per_scalar_thread.size(); i++) {
       // Only check active threads
-      if (/*tmask.test(i)*/ thread_active(i)) {
+      if (tmask.test(i)) {
         // Easiest check is intersection tests
         if (m_per_scalar_thread[i].intersection_delay != 0) {
           m_per_scalar_thread[i].status_num_cycles[warp_status][executing_op]++;
@@ -349,7 +338,6 @@ struct RtuTraceData : public ITraceData {
       return false;
     }
   }
-
 };
 
 };
