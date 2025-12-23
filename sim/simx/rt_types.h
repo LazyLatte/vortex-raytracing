@@ -1,4 +1,5 @@
 #pragma once
+#include <VX_config.h>
 #include <deque>
 #include <cstdint>
 #include <cassert>
@@ -11,12 +12,22 @@ namespace vortex {
     struct BVHNode {
         float px, py, pz;
         int8_t ex, ey, ez;
+
+        // 00: tlas internal
+        // 01: tlas leaf
+        // 10: bvh internal
+        // 11: bvh leaf
         uint8_t imask;
 
         uint32_t leftFirst; //First Child Idx
         uint32_t leafData; //blasIdx for TLAS, triCount for BVH
         
-        BVHChildData children[4];
+        BVHChildData children[RT_BVH_WIDTH];
+    };
+
+    struct BLASNode {
+        uint32_t bvh_offset;
+        float invTransform[12];
     };
 
     struct Triangle {

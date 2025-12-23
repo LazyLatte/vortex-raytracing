@@ -65,9 +65,9 @@ struct bvh_node_t {
 
 // bottom-level acceleration structure
 struct blas_node_t {
-  mat4_t   transform; // transformation matrix
-  mat4_t   invTransform; // inverse transformation matrix
   uint32_t bvh_offset = 0; // offset in bvh buffer
+  mat4_t   invTransform; // inverse transformation matrix
+  mat4_t   transform; // transformation matrix
   uint64_t tex_offset = 0; // offset in texture buffer
   uint32_t tex_width = 0;
   uint32_t tex_height = 0;

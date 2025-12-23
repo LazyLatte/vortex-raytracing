@@ -35,7 +35,7 @@ struct Split{
 // bounding volume hierarchy, to be used as BLAS
 class BVH {
 public:
-  BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t* bvh_nodes, bvh_quantized_node_t *bvh_qnodes, uint32_t *triIndices, tri_ex_t *triEx);
+  BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t* bvh_nodes, bvh_quantized_node_t *bvh_qnodes, uint32_t *triIndices, tri_ex_t *triEx, uint32_t tri_offset);
   ~BVH();
 
   auto &aabbMin() const { return bvhNodes_[0].aabbMin; }
@@ -66,6 +66,7 @@ private:
   bvh_node_t *bvhNodes_ = nullptr;
   bvh_quantized_node_t *bvhQNodes_ = nullptr;
   uint32_t nodeCount_ = 0;
+  uint32_t tri_offset_ = 0;
 };
 
 // top-level BVH class

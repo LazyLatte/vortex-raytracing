@@ -4,7 +4,6 @@
 
 #define BVH_WIDTH 4
 #define RT_STACK_SIZE 5
-#define BLAS_NODE_SIZE 160
 
 #define RAY_TRANSFORM_LATENCY 6
 #define RAY_BOX_INTERSECTION_LATENCY 24
@@ -113,21 +112,19 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, per_thread_info &thread
             //Leaf Node
             if(isTopLevel(&node)){
                 blasIdx = node.leafData;
-                //std::cout << blasIdx << std::endl;
-                uint32_t bvh_offset;
-                uint32_t blas_node_ptr = blas_ptr + blasIdx * BLAS_NODE_SIZE;
-                dcache_read(&bvh_offset, blas_node_ptr + 32 * sizeof(float), sizeof(uint32_t));
+                uint32_t blas_node_ptr = blas_ptr + blasIdx * 160;
+                
+                BLASNode blas_node;
+                dcache_read(&blas_node, blas_node_ptr, sizeof(BLASNode));
+                thread_info.RT_mem_accesses.emplace_back(blas_node_ptr, sizeof(BLASNode),TransactionType::BVH_INSTANCE_LEAF);
 
-                float M[16];
-                dcache_read(&M[0], blas_node_ptr + 16 * sizeof(float), 16 * sizeof(float));
-                ray = ray_transform(ray_buf.ray, M);
+                ray = ray_transform(ray_buf.ray, blas_node.invTransform);
 
-                //std::cout << bvh_offset << std::endl;
-                base_ptr = qBvh_ptr + bvh_offset * sizeof(BVHNode);
+                base_ptr = qBvh_ptr + blas_node.bvh_offset * sizeof(BVHNode);
                 node_ptr = base_ptr;
             }else{
                 uint32_t triCount = node.leafData;
-                uint32_t leftFirst = node.leftFirst + (blasIdx == 0 ? 0 : 1024); //fix!!!!!!!
+                uint32_t leftFirst = node.leftFirst;
 
                 for (uint32_t i = 0; i < triCount; ++i) {
                     uint32_t triIdx = leftFirst + i;

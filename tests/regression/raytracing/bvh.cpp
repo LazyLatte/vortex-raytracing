@@ -8,7 +8,7 @@
 #define BINS 8
 // BVH class implementation
 
-BVH::BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t *bvh_nodes, bvh_quantized_node_t *bvh_qnodes, uint32_t *triIndices, tri_ex_t *triEx) {
+BVH::BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t *bvh_nodes, bvh_quantized_node_t *bvh_qnodes, uint32_t *triIndices, tri_ex_t *triEx, uint32_t tri_offset) {
   bvhNodes_ = bvh_nodes;
   bvhQNodes_ = bvh_qnodes;
   centroids_ = centroids;
@@ -16,6 +16,7 @@ BVH::BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t *bvh
   triData_ = triData;
   triIndices_ = triIndices;
   triEx_ = triEx;
+  tri_offset_ = tri_offset;
   std::cout << "Start build" <<std::endl;
   this->build();
   //visualize(bvhNodes_);
@@ -256,7 +257,7 @@ void BVH::quantize(){
       if(node.triCount > 1){
         std::cout << node.triCount << std::endl;
       }
-      
+      qNode.leftFirst += tri_offset_;
     }
   }
   std::cout << "BVH Quantization ends ... (#node=" << nodeCount_ << ")" << std::endl;
