@@ -106,6 +106,14 @@ public:
 
   void dcache_write(const void* data, uint64_t addr, uint32_t size);
 
+  const auto& active_warps() const {
+    return active_warps_;
+  }
+
+  const auto& stalled_warps() const {
+    return stalled_warps_;
+  }
+
 private:
 
   uint32_t fetch(uint32_t wid, uint64_t uuid);
