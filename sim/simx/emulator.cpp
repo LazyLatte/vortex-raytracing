@@ -78,8 +78,8 @@ Emulator::Emulator(const Arch &arch, const DCRS &dcrs, Core* core)
     , core_(core)
     , warps_(arch.num_warps(), arch.num_threads())
     , barriers_(arch.num_barriers(), 0)
-    , async_barriers_(arch.num_barriers())
     , ipdom_size_(arch.num_threads()-1)
+    , async_barriers_(arch.num_barriers())
   #ifdef EXT_TCU_ENABLE
     , tensor_unit_(core->tensor_unit())
   #endif
