@@ -28,7 +28,7 @@ RestartTrailTraversal::RestartTrailTraversal(
     rt_unit_(rt_unit)
 {}
 
-void RestartTrailTraversal::traverse(RayBuffer &ray_buf, per_thread_info &thread_info){
+void RestartTrailTraversal::traverse(std::pair<Ray, Hit>& ray_buf, per_thread_info &thread_info){
     level = 0;
     trail.fill(0);
     base_ptr = tlas_ptr;
@@ -36,7 +36,7 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, per_thread_info &thread
     
     uint32_t blasIdx = 0;
     
-    Ray ray = ray_buf.ray;
+    Ray ray = ray_buf.first;
     BVHNode node;
     
     bool exit = false;
@@ -64,9 +64,9 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, per_thread_info &thread
                 float max_y = node.py + std::ldexp(float(node.children[i].qaabb[4]), node.ey);
                 float max_z = node.pz + std::ldexp(float(node.children[i].qaabb[5]), node.ez);
 
-                float d = ray_box_intersect(isTopLevel(&node) ? ray_buf.ray : ray, min_x, min_y, min_z, max_x, max_y, max_z);
+                float d = ray_box_intersect(isTopLevel(&node) ? ray_buf.first : ray, min_x, min_y, min_z, max_x, max_y, max_z);
 
-                if(d < ray_buf.hit.dist){
+                if(d < ray_buf.second.dist){
                     intersections.emplace_back(d, i);
                 }
             }
@@ -118,7 +118,7 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, per_thread_info &thread
                 dcache_read(&blas_node, blas_node_ptr, sizeof(BLASNode));
                 thread_info.RT_mem_accesses.emplace_back(blas_node_ptr, sizeof(BLASNode),TransactionType::BVH_INSTANCE_LEAF);
 
-                ray = ray_transform(ray_buf.ray, blas_node.invTransform);
+                ray = ray_transform(ray_buf.first, blas_node.invTransform);
 
                 base_ptr = qBvh_ptr + blas_node.bvh_offset * sizeof(BVHNode);
                 node_ptr = base_ptr;
@@ -139,13 +139,13 @@ void RestartTrailTraversal::traverse(RayBuffer &ray_buf, per_thread_info &thread
                     float bx, by, bz;
                     float d = ray_tri_intersect(ray, tri, bx, by, bz);
 
-                    if (d < ray_buf.hit.dist) {
-                        ray_buf.hit.dist = d;
-                        ray_buf.hit.bx = bx;
-                        ray_buf.hit.by = by;
-                        ray_buf.hit.bz = bz;
-                        ray_buf.hit.blasIdx = blasIdx;
-                        ray_buf.hit.triIdx = triIdx;
+                    if (d < ray_buf.second.dist) {
+                        ray_buf.second.dist = d;
+                        ray_buf.second.bx = bx;
+                        ray_buf.second.by = by;
+                        ray_buf.second.bz = bz;
+                        ray_buf.second.blasIdx = blasIdx;
+                        ray_buf.second.triIdx = triIdx;
                         
                         thread_info.RT_mem_accesses.emplace_back(tri_addr, sizeof(Triangle),TransactionType::BVH_QUAD_LEAF_HIT);
                     }else{

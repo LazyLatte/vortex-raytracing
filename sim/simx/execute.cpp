@@ -31,6 +31,10 @@
 #endif
 #include "VX_types.h"
 
+#ifdef EXT_RTU_ENABLE
+#include "rt_types.h"
+#endif
+
 using namespace vortex;
 
 inline uint64_t nan_box(uint32_t value) {
@@ -149,7 +153,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
   if (rsrc0.type != RegType::None) fetch_registers(rs1_data, wid, 0, rsrc0);
   if (rsrc1.type != RegType::None) fetch_registers(rs2_data, wid, 1, rsrc1);
   if (rsrc2.type != RegType::None) fetch_registers(rs3_data, wid, 2, rsrc2);
-
+  
   uint32_t thread_start = 0;
   for (; thread_start < num_threads; ++thread_start) {
     if (warp.tmask.test(thread_start))
@@ -1473,13 +1477,39 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
     ,[&](RtuType rtu_type) {
       auto rtuArgs = std::get<IntrRtuArgs>(instrArgs);
       switch (rtu_type) {
-      case RtuType::Trace: {
+      case RtuType::INIT_RAY: {
+        rt_unit_->create_ray(rd_data);
+        rd_write = true;
+      } break;
+      case RtuType::LOAD_X: {
+        rt_unit_->set_ray_x(rs1_data, rs2_data, rs3_data);
+      } break;
+      case RtuType::LOAD_Y: {
+        rt_unit_->set_ray_y(rs1_data, rs2_data, rs3_data);
+      } break;
+      case RtuType::LOAD_Z: {
+        rt_unit_->set_ray_z(rs1_data, rs2_data, rs3_data);
+      } break;
+      case RtuType::TRACE: {
         auto trace_data = std::make_shared<RtuTraceData>(num_threads);
         trace->data = trace_data;
         
-        rt_unit_->traverse(wid, rd_data, trace_data.get());
+        rt_unit_->traverse(rs1_data, trace_data.get());
+      } break;
+      case RtuType::GET_WORK: {        
+        rt_unit_->get_work(rd_data);
         rd_write = true;
-        
+      } break;
+      case RtuType::GET_ATTR: {        
+        rt_unit_->get_attr(rs1_data, rs2_data, rd_data);
+        rd_write = true;
+      } break;
+      case RtuType::SET_COLOR: {        
+        rt_unit_->set_color(rs1_data, rs2_data, rs3_data);
+      } break;
+      case RtuType::GET_COLOR: {        
+        rt_unit_->get_color(rs1_data, rs2_data, rd_data);
+        rd_write = true;
       } break;
       default:
         std::abort();

@@ -149,14 +149,6 @@ inline void vx_join(int stack_ptr) {
     __asm__ volatile (".insn r %0, 3, 0, x0, %1, x0" :: "i"(RISCV_CUSTOM0), "r"(stack_ptr));
 }
 
-// Trace
-//opcode: EXT1, func3: 0, func7: 3
-inline int vx_trace(int root){
-    int ret;
-    __asm__ volatile (".insn r %1, 0, 3, %0, %2, x0" : "=r"(ret) : "i"(RISCV_CUSTOM0), "r"(root));
-    return ret;
-}
-
 // Warp Barrier
 inline void vx_barrier(int barried_id, int num_warps) {
     __asm__ volatile (".insn r %0, 4, 0, x0, %1, %2" :: "i"(RISCV_CUSTOM0), "r"(barried_id), "r"(num_warps));

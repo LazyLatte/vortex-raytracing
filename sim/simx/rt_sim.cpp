@@ -30,6 +30,14 @@ void RTSim::add_warp(){
 
     if (!input.empty()){
       auto trace = input.front();
+      assert(trace != nullptr);
+      auto op_type = std::get<RtuType>(trace->op_type);
+      if(1){
+        simobject_->Outputs.at(0).push(trace, 1);
+        input.pop();
+        continue;
+      }
+
       warp_buffers_.push_back(trace);
       warp_latencies_.insert({trace->wid, 0});
       input.pop();

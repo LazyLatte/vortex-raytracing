@@ -58,13 +58,20 @@ public:
     void reset();
     void tick();
 
-    void get_csr(uint32_t addr, uint32_t wid, uint32_t tid, Word* value);
-    void set_csr(uint32_t addr, uint32_t wid, uint32_t tid, Word value);
-
     void dcache_read(void* data, uint64_t addr, uint32_t size);
     void dcache_write(const void* data, uint64_t addr, uint32_t size);
 
-    void traverse(uint32_t wid, std::vector<reg_data_t>& rd_data, RtuTraceData* trace_data);
+    void create_ray(std::vector<reg_data_t>& rd_data);
+    void set_ray_x(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data);
+    void set_ray_y(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data);
+    void set_ray_z(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data);
+
+    void traverse(const std::vector<reg_data_t>& rs1_data, RtuTraceData* trace_data);
+    void get_work(std::vector<reg_data_t>& rd_data);
+    void get_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, std::vector<reg_data_t>& rd_data);
+
+    void set_color(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data);
+    void get_color(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, std::vector<reg_data_t>& rd_data);
     const PerfStats& perf_stats() const;
 private:
 	class Impl;

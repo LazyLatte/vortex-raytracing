@@ -1,3 +1,4 @@
+#pragma once
 #include "common.h"
 
 // Sample a texture using point filtering

@@ -170,6 +170,8 @@ typedef struct {
   float3_t light_color;
   float3_t ambient_color;
   float3_t background_color;
+
+  uint64_t sbt_addr;
 } kernel_arg_t;
 
 

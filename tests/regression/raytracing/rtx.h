@@ -4,33 +4,10 @@
 #include "rtx_shading.h"
 #include <vx_print.h>
 #include <vx_spawn.h>
+#include <vx_trace.h>
 #include <limits>
 
 #define BVH_STACK_SIZE 64
-
-ray_t GenerateRay(uint32_t x, uint32_t y, const kernel_arg_t *__UNIFORM__ arg) {
-  float x_ndc = (x + 0.5f) / arg->dst_width - 0.5;
-  float y_ndc = (y + 0.5f) / arg->dst_height - 0.5;
-
-  float x_vp = x_ndc * arg->viewplane.x;
-  float y_vp = y_ndc * arg->viewplane.y;
-
-  auto pt_cam = x_vp * arg->camera_right + y_vp * arg->camera_up + arg->camera_forward;
-
-  auto pt_w = pt_cam + arg->camera_pos;
-
-  auto camera_dir = normalize(pt_w - arg->camera_pos);
-  auto camera_pos = arg->camera_pos;
-  csr_write(VX_CSR_RTX_RO1, *reinterpret_cast<uint32_t*>(&camera_pos.x));
-  csr_write(VX_CSR_RTX_RO2, *reinterpret_cast<uint32_t*>(&camera_pos.y));
-  csr_write(VX_CSR_RTX_RO3, *reinterpret_cast<uint32_t*>(&camera_pos.z));
-
-  csr_write(VX_CSR_RTX_RD1, *reinterpret_cast<uint32_t*>(&camera_dir.x));
-  csr_write(VX_CSR_RTX_RD2, *reinterpret_cast<uint32_t*>(&camera_dir.y));
-  csr_write(VX_CSR_RTX_RD3, *reinterpret_cast<uint32_t*>(&camera_dir.z));
-
-  return ray_t{arg->camera_pos, camera_dir};
-}
 
 float3_t Trace(const ray_t &ray, const kernel_arg_t *__UNIFORM__ arg) {
   auto tri_ptr = reinterpret_cast<const tri_t *>(arg->tri_addr);
@@ -51,8 +28,8 @@ float3_t Trace(const ray_t &ray, const kernel_arg_t *__UNIFORM__ arg) {
   for (uint32_t bounce = 0; bounce < arg->max_depth; ++bounce) {
     ray_hit_t hit;
     //TLASIntersect(cur_ray, arg->tlas_root, tlas_ptr, blas_ptr, bvh_ptr, texIdx_ptr, tri_ptr, &hit);
-    uint32_t ret = vx_trace(arg->tlas_root);
-    //uint32_t ret = vx_trace_treelet(arg->tlas_root);
+    uint32_t ret;
+    vortex::rt::traceRay(ray.orig.x, ray.orig.y, ray.orig.z, ray.dir.x, ray.dir.y, ray.dir.z, ret);
     float dist = *reinterpret_cast<float*>(&ret);
 
     uint32_t bx = csr_read(VX_CSR_RTX_BCOORDS1);

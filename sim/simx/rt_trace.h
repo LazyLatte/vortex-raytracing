@@ -220,7 +220,18 @@ struct RtuTraceData : public ITraceData {
       
       if (mem_record.addr == rsp_addr) {
         // Set up delay of next intersection test
-        unsigned n_delay_cycles = 4;
+        std::map<TransactionType, unsigned> transaction_type_latencies = {
+          {TransactionType::BVH_STRUCTURE, 1},
+          {TransactionType::BVH_INTERNAL_NODE, 24},
+          {TransactionType::BVH_INSTANCE_LEAF, 6},
+          {TransactionType::BVH_PRIMITIVE_LEAF_DESCRIPTOR, 1},
+          {TransactionType::BVH_QUAD_LEAF, 16},
+          {TransactionType::BVH_QUAD_LEAF_HIT, 16},
+          {TransactionType::BVH_PROCEDURAL_LEAF, 1},
+          {TransactionType::Intersection_Table_Load, 1}
+        };
+
+        unsigned n_delay_cycles = transaction_type_latencies[mem_record.type];
         m_per_scalar_thread[tid].intersection_delay += n_delay_cycles;
         
         // RT_DPRINTF("Thread %d collected all chunks for address 0x%x (size %d)\n", tid, mem_record.address, mem_record.size);

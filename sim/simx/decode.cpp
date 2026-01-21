@@ -477,7 +477,17 @@ static op_string_t op_string(const Instr &instr) {
     ,[&](RtuType rtu_type)-> op_string_t {
       auto rtuArgs = std::get<IntrRtuArgs>(instrArgs);
       switch (rtu_type) {
-        case RtuType::Trace: return {"Trace", ""};
+        case RtuType::INIT_RAY: return {"INIT", ""};
+        case RtuType::LOAD_X: return {"LOAD_X", ""};
+        case RtuType::LOAD_Y: return {"LOAD_Y", ""};
+        case RtuType::LOAD_Z: return {"LOAD_Z", ""};
+        case RtuType::TRACE: return {"Trace", ""};
+        case RtuType::GET_WORK: return {"GET_WORK", ""};
+        case RtuType::GET_ATTR: return {"GET_ATTR", ""};
+        case RtuType::COMMIT: return {"COMMIT", ""};
+        case RtuType::SET_COLOR: return {"SET_COLOR", ""};
+        case RtuType::GET_COLOR: return {"GET_COLOR", ""};
+
         default: std::abort();
       }
     }
@@ -1131,13 +1141,88 @@ void Emulator::decode(uint32_t code, uint32_t wid, uint64_t uuid) {
     case 3: {
       switch (funct3) {
       case 0: { // RTX
-        auto instr = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
-        instr->setOpType(RtuType::Trace);
-        instr->setArgs(IntrRtuArgs{});
-        instr->setDestReg(rd, RegType::Integer);
-        instr->setSrcReg(0, rs1, RegType::Integer);
-        instr->setSrcReg(1, rs2, RegType::None);
-        ibuffer.push_back(instr);
+        uint32_t base = rs1;
+        uint32_t dest = rd;
+
+        auto i_init = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        i_init->setArgs(IntrRtuArgs{});
+        i_init->setOpType(RtuType::INIT_RAY);
+        i_init->setDestReg(dest, RegType::Integer);
+        ibuffer.push_back(i_init);
+
+        auto i_ray_x = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        i_ray_x->setArgs(IntrRtuArgs{});
+        i_ray_x->setOpType(RtuType::LOAD_X);
+        i_ray_x->setSrcReg(0, dest, RegType::Integer);
+        i_ray_x->setSrcReg(1, base + 0, RegType::Float);
+        i_ray_x->setSrcReg(2, base + 3, RegType::Float);
+        ibuffer.push_back(i_ray_x);
+
+        auto i_ray_y = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        i_ray_y->setArgs(IntrRtuArgs{});
+        i_ray_y->setOpType(RtuType::LOAD_Y);
+        i_ray_y->setSrcReg(0, dest, RegType::Integer);
+        i_ray_y->setSrcReg(1, base + 1, RegType::Float);
+        i_ray_y->setSrcReg(2, base + 4, RegType::Float);
+        ibuffer.push_back(i_ray_y);
+
+        auto i_ray_z = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        i_ray_z->setArgs(IntrRtuArgs{});
+        i_ray_z->setOpType(RtuType::LOAD_Z);
+        i_ray_z->setSrcReg(0, dest, RegType::Integer);
+        i_ray_z->setSrcReg(1, base + 2, RegType::Float);
+        i_ray_z->setSrcReg(2, base + 5, RegType::Float);
+        ibuffer.push_back(i_ray_z);
+
+        auto i_trace = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        i_trace->setArgs(IntrRtuArgs{});
+        i_trace->setOpType(RtuType::TRACE);
+        i_trace->setSrcReg(0, dest, RegType::Integer);
+        ibuffer.push_back(i_trace);
+      } break;
+      case 1: { // Get Work
+        auto i_get_work = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        i_get_work->setArgs(IntrRtuArgs{});
+        i_get_work->setOpType(RtuType::GET_WORK);
+        i_get_work->setDestReg(rd, RegType::Integer);
+        ibuffer.push_back(i_get_work);
+      } break;
+      case 2: { // Get Attr
+        auto i_get_attr = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        i_get_attr->setArgs(IntrRtuArgs{});
+        i_get_attr->setOpType(RtuType::GET_ATTR);
+        i_get_attr->setSrcReg(0, rs1, RegType::Integer); // rayID
+        i_get_attr->setSrcReg(1, rs2, RegType::Integer); // attrID
+        i_get_attr->setDestReg(rd, RegType::Integer);
+        ibuffer.push_back(i_get_attr);
+      } break;
+      //case 3: { // Commit
+        // auto i_get_attr = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        // i_get_attr->setArgs(IntrRtuArgs{});
+        // i_get_attr->setOpType(RtuType::GET_ATTR);
+        // i_get_attr->setSrcReg(0, rs1, RegType::Integer); // rayID
+        // i_get_attr->setSrcReg(1, rs2, RegType::Integer); // attrID
+        // i_get_attr->setDestReg(rd, RegType::Integer);
+        // ibuffer.push_back(i_get_attr);
+      //} break;
+      case 4: { // Set color
+        auto i_set_color = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        i_set_color->setArgs(IntrRtuArgs{});
+        i_set_color->setOpType(RtuType::SET_COLOR);
+        i_set_color->setSrcReg(0, rs1, RegType::Integer);
+        i_set_color->setSrcReg(1, rs2 + 0, RegType::Float);
+        i_set_color->setSrcReg(2, rs2 + 1, RegType::Float);
+        //i_write_color->setSrcReg(3, rs2 + 2, RegType::Float);
+        ibuffer.push_back(i_set_color);
+      } break;
+      case 5: { // Get color
+        auto i_get_color = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        i_get_color->setArgs(IntrRtuArgs{});
+        i_get_color->setOpType(RtuType::GET_COLOR);
+        i_get_color->setSrcReg(0, rs1, RegType::Integer);
+        i_get_color->setSrcReg(1, rs2, RegType::Integer);
+        i_get_color->setDestReg(rd, RegType::Integer);
+        ibuffer.push_back(i_get_color);
       } break;
       default:
         std::abort();

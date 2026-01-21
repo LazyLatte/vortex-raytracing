@@ -1,5 +1,4 @@
 #pragma once
-#include "rt_ray_buffer.h"
 #include "rt_types.h"
 #include <algorithm>
 #include <cmath> 

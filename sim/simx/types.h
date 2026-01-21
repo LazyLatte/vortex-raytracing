@@ -668,28 +668,32 @@ inline std::ostream &operator<<(std::ostream &os, const TcuType& type) {
 ///////////////////////////////////////////////////////////////////////////////
 
 enum class RtuType {
-  Trace,
+  INIT_RAY,
+  LOAD_X,
+  LOAD_Y,
+  LOAD_Z,
+  TRACE,
+  GET_WORK,
+  GET_ATTR,
+  COMMIT,
+  SET_COLOR,
+  GET_COLOR
 };
 
-struct IntrRtuArgs {
-  // uint32_t fmt_s  : 4;
-  // uint32_t fmt_d  : 4;
-  // uint32_t step_m : 4;
-  // uint32_t step_n : 4;
-
-  // std::string to_string(RtuType type) const {
-  //   std::string str = "vm=" + std::to_string(vm) +
-  //                     ", funct6=" + std::to_string(funct6);
-  //   if (type == VopType::OPIVI || type == VopType::OPIVX) {
-  //     str += ", imm=" + to_hex_str(imm);
-  //   }
-  //   return str;
-  // }
-};
+struct IntrRtuArgs {};
 
 inline std::ostream &operator<<(std::ostream &os, const RtuType& type) {
   switch (type) {
-  case RtuType::Trace: os << "Trace"; break;
+  case RtuType::INIT_RAY:    os << "INIT_RAY"; break;
+  case RtuType::LOAD_X:      os << "LOAD_X"; break;
+  case RtuType::LOAD_Y:      os << "LOAD_Y"; break;
+  case RtuType::LOAD_Z:      os << "LOAD_Z"; break;
+  case RtuType::TRACE:       os << "TRACE"; break;
+  case RtuType::GET_WORK:    os << "GET_WORK"; break;
+  case RtuType::GET_ATTR:    os << "GET_ATTR"; break;
+  case RtuType::COMMIT:      os << "COMMIT"; break;
+  case RtuType::SET_COLOR:   os << "SET_COLOR"; break;
+  case RtuType::GET_COLOR:   os << "GET_COLOR"; break;
   default:
     assert(false);
   }

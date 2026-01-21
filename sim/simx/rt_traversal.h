@@ -1,7 +1,6 @@
     
 #pragma once
 #include "rt_types.h"
-#include "rt_ray_buffer.h"
 #include "rt_trace.h"
 #include <array>
 
@@ -12,7 +11,7 @@ namespace vortex {
     class RestartTrailTraversal{
         public:
             RestartTrailTraversal(uint32_t tlas_ptr, uint32_t blas_ptr, uint32_t qBvh_ptr, uint32_t tri_ptr, uint32_t tri_idx_ptr, RTUnit* rt_unit);
-            void traverse(RayBuffer &ray_buf, per_thread_info &thread_info);
+            void traverse(std::pair<Ray, Hit>& ray_buf, per_thread_info &thread_info);
 
         private:
             void push(StackEntry e);

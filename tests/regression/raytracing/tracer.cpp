@@ -1,10 +1,10 @@
 #include "tracer.h"
 #define __UNIFORM__
-#include "render.h"
+//#include "render.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
-
+#include "shader.h"
 struct material_t {
   const char* texture;
   float reflectivity;
@@ -150,6 +150,10 @@ int Tracer::init(const char *kernel_file, const char* model_file, uint32_t mesh_
     // allocate output buffer
     RT_CHECK(vx_mem_alloc(device_, dst_width_ * dst_height_ * sizeof(uint32_t), VX_MEM_WRITE, &output_buffer_));
     RT_CHECK(vx_mem_address(output_buffer_, &kernel_arg_.dst_addr));
+
+    // allocate sbt
+    RT_CHECK(vx_mem_alloc(device_, sizeof(uint64_t) * 4, VX_MEM_READ_WRITE, &sbtBuffer_));
+    RT_CHECK(vx_mem_address(sbtBuffer_, &kernel_arg_.sbt_addr));
   }
 
   return 0;
@@ -224,13 +228,13 @@ int Tracer::setup(float camera_vfov, float zoom, float3_t light_pos, float3_t li
   // upload tex data
   RT_CHECK(vx_copy_to_dev(texBuffer_, scene_->tex_buf().data(), 0, scene_->tex_buf().size()));
 
-  
   RT_CHECK(vx_dcr_write(device_, 0x00000006, (uint32_t)(kernel_arg_.tlas_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x00000007, (uint32_t)(kernel_arg_.blas_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x00000008, (uint32_t)(kernel_arg_.bvh_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x00000009, (uint32_t)(kernel_arg_.qBvh_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x0000000A, (uint32_t)(kernel_arg_.tri_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x0000000B, (uint32_t)(kernel_arg_.triIdx_addr)));
+  RT_CHECK(vx_dcr_write(device_, 0x0000000C, (uint32_t)(kernel_arg_.sbt_addr)));
   return 0;
 }
 
@@ -263,17 +267,17 @@ int Tracer::run(const char *output_file) {
 }
 
 void Tracer::render() {
-  auto arg = &kernel_arg_;
-  auto out_ptr = reinterpret_cast<uint32_t *>(arg->dst_addr);
-  for (uint32_t y = 0; y < arg->dst_height; ++y) {
-    for (uint32_t x = 0; x < arg->dst_width; ++x) {
-      uint32_t out_idx = y * arg->dst_width + x;
-      float3_t color = float3_t(0, 0, 0);
-      for (uint32_t s = 0; s < arg->samples_per_pixel; ++s) {
-        auto ray = GenerateRay(x, y, arg);
-        color += Trace(ray, arg);
-      }
-      out_ptr[out_idx] = RGB32FtoRGB8(color);
-    }
-  }
+  // auto arg = &kernel_arg_;
+  // auto out_ptr = reinterpret_cast<uint32_t *>(arg->dst_addr);
+  // for (uint32_t y = 0; y < arg->dst_height; ++y) {
+  //   for (uint32_t x = 0; x < arg->dst_width; ++x) {
+  //     uint32_t out_idx = y * arg->dst_width + x;
+  //     float3_t color = float3_t(0, 0, 0);
+  //     for (uint32_t s = 0; s < arg->samples_per_pixel; ++s) {
+  //       auto ray = GenerateRay(x, y, arg);
+  //       color += Trace(ray, arg);
+  //     }
+  //     out_ptr[out_idx] = RGB32FtoRGB8(color);
+  //   }
+  // }
 }
