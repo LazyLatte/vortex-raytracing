@@ -539,10 +539,10 @@ class vAddr_t
 #endif
     }
 
-    ~vAddr_t()
-    {
-      delete vpn;
-    }
+  ~vAddr_t()
+  {
+    delete [] vpn;
+  }
 };
 #endif
 
