@@ -61,17 +61,16 @@ public:
     void dcache_read(void* data, uint64_t addr, uint32_t size);
     void dcache_write(const void* data, uint64_t addr, uint32_t size);
 
-    void create_ray(std::vector<reg_data_t>& rd_data);
-    void set_ray_x(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data);
-    void set_ray_y(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data);
-    void set_ray_z(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data);
+    void init_ray(std::vector<reg_data_t>& rd_data);
+    void set_ray_properties(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data, uint32_t axis);
+    void set_ray_bounce(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data);
 
     void traverse(const std::vector<reg_data_t>& rs1_data, RtuTraceData* trace_data);
     void get_work(std::vector<reg_data_t>& rd_data);
     void get_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, std::vector<reg_data_t>& rd_data);
+    void set_color(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, uint32_t ch);
+    void commit(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, RtuTraceData* trace_data);
 
-    void set_color(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data);
-    void get_color(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, std::vector<reg_data_t>& rd_data);
     const PerfStats& perf_stats() const;
 private:
 	class Impl;

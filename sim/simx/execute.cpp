@@ -1478,17 +1478,20 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
       auto rtuArgs = std::get<IntrRtuArgs>(instrArgs);
       switch (rtu_type) {
       case RtuType::INIT_RAY: {
-        rt_unit_->create_ray(rd_data);
+        rt_unit_->init_ray(rd_data);
         rd_write = true;
       } break;
       case RtuType::LOAD_X: {
-        rt_unit_->set_ray_x(rs1_data, rs2_data, rs3_data);
+        rt_unit_->set_ray_properties(rs1_data, rs2_data, rs3_data, 0);
       } break;
       case RtuType::LOAD_Y: {
-        rt_unit_->set_ray_y(rs1_data, rs2_data, rs3_data);
+        rt_unit_->set_ray_properties(rs1_data, rs2_data, rs3_data, 1);
       } break;
       case RtuType::LOAD_Z: {
-        rt_unit_->set_ray_z(rs1_data, rs2_data, rs3_data);
+        rt_unit_->set_ray_properties(rs1_data, rs2_data, rs3_data, 2);
+      } break;
+      case RtuType::SET_BOUNCE: {        
+        rt_unit_->set_ray_bounce(rs1_data, rs2_data);
       } break;
       case RtuType::TRACE: {
         auto trace_data = std::make_shared<RtuTraceData>(num_threads);
@@ -1504,12 +1507,19 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
         rt_unit_->get_attr(rs1_data, rs2_data, rd_data);
         rd_write = true;
       } break;
-      case RtuType::SET_COLOR: {        
-        rt_unit_->set_color(rs1_data, rs2_data, rs3_data);
+      case RtuType::SET_COLOR_R: {        
+        rt_unit_->set_color(rs1_data, rs2_data, 0);
       } break;
-      case RtuType::GET_COLOR: {        
-        rt_unit_->get_color(rs1_data, rs2_data, rd_data);
-        rd_write = true;
+      case RtuType::SET_COLOR_G: {        
+        rt_unit_->set_color(rs1_data, rs2_data, 1);
+      } break;
+      case RtuType::SET_COLOR_B: {        
+        rt_unit_->set_color(rs1_data, rs2_data, 2);
+      } break;
+      case RtuType::COMMIT: {    
+        auto trace_data = std::make_shared<RtuTraceData>(num_threads);
+        trace->data = trace_data;    
+        rt_unit_->commit(rs1_data, rs2_data, trace_data.get());
       } break;
       default:
         std::abort();

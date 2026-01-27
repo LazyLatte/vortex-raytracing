@@ -3,7 +3,6 @@
 #include "rt_unit.h"
 
 #define BVH_WIDTH 4
-#define RT_STACK_SIZE 5
 
 #define RAY_TRANSFORM_LATENCY 6
 #define RAY_BOX_INTERSECTION_LATENCY 24
@@ -11,47 +10,49 @@
 
 using namespace vortex;
 
-RestartTrailTraversal::RestartTrailTraversal(
-    uint32_t tlas_ptr,
-    uint32_t blas_ptr,
-    uint32_t qBvh_ptr,
-    uint32_t tri_ptr, 
-    uint32_t tri_idx_ptr, 
-    RTUnit* rt_unit
-): 
-    tlas_ptr(tlas_ptr),
-    blas_ptr(blas_ptr),
-    qBvh_ptr(qBvh_ptr),
-    tri_ptr(tri_ptr), 
-    tri_idx_ptr(tri_idx_ptr),
-    traversal_stack(RT_STACK_SIZE),
-    rt_unit_(rt_unit)
-{}
+struct ChildIntersection {
+    float dist;
+    uint32_t childIdx;
 
-void RestartTrailTraversal::traverse(std::pair<Ray, Hit>& ray_buf, per_thread_info &thread_info){
-    level = 0;
-    trail.fill(0);
-    base_ptr = tlas_ptr;
-    node_ptr = calcNodePtr(0);
+    ChildIntersection(float _dist, uint32_t _childIdx)
+        : dist(_dist)
+        , childIdx(_childIdx)
+    {}
+};
+
+BVHTraverser::BVHTraverser(RTUnit* rt_unit, const DCRS &dcrs): rt_unit_(rt_unit), dcrs_(dcrs){}
+
+bool BVHTraverser::traverse(
+    const Ray& ray, 
+    Hit& hit, 
+    TraversalTrail& trail, 
+    TraversalStack& stack,
+    per_thread_info &thread_info
+){
+    tlas_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TLAS_PTR);
+    blas_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_BLAS_PTR);
+    qBvh_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_QBVH_PTR);
+    tri_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TRI_PTR);
+    tri_idx_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TRI_IDX_PTR);
+
+    uint32_t level = 0;
+    //trail.fill(0);
+    uint32_t base_ptr = tlas_ptr;
+    uint32_t node_ptr = calcNodePtr(base_ptr, 0);
     
     uint32_t blasIdx = 0;
     
-    Ray ray = ray_buf.first;
+    Ray cur_ray = ray;
     BVHNode node;
     
     bool exit = false;
     
     while(!exit){
 
-        read_node(&node);
+        read_node(&node, node_ptr);
         thread_info.RT_mem_accesses.emplace_back(node_ptr, sizeof(BVHNode),TransactionType::BVH_INTERNAL_NODE);
 
         if(!isLeaf(&node)){
-            //Internal node
-            // if(isTopLevel(&node)){
-            //     std::cout << node.leftFirst << std::endl;
-            // }
-            
             std::vector<ChildIntersection> intersections;
 
             for(int i=0; i<BVH_WIDTH; i++){
@@ -64,9 +65,9 @@ void RestartTrailTraversal::traverse(std::pair<Ray, Hit>& ray_buf, per_thread_in
                 float max_y = node.py + std::ldexp(float(node.children[i].qaabb[4]), node.ey);
                 float max_z = node.pz + std::ldexp(float(node.children[i].qaabb[5]), node.ez);
 
-                float d = ray_box_intersect(isTopLevel(&node) ? ray_buf.first : ray, min_x, min_y, min_z, max_x, max_y, max_z);
+                float d = ray_box_intersect(isTopLevel(&node) ? ray : cur_ray, min_x, min_y, min_z, max_x, max_y, max_z);
 
-                if(d < ray_buf.second.dist){
+                if(d < hit.dist){
                     intersections.emplace_back(d, i);
                 }
             }
@@ -84,25 +85,20 @@ void RestartTrailTraversal::traverse(std::pair<Ray, Hit>& ray_buf, per_thread_in
             }
             
             if(intersections.size() == 0){
-                exit = pop();
+                exit = pop(base_ptr, node_ptr, level, trail, stack);
             }else{
                 ChildIntersection closest = intersections.back();
                 intersections.pop_back();
 
                 uint32_t nodeIdx = node.leftFirst + closest.childIdx;
-                node_ptr = calcNodePtr(nodeIdx);
+                node_ptr = calcNodePtr(base_ptr, nodeIdx);
                 
                 if(intersections.size() == 0){
                     trail[level] = BVH_WIDTH;
                 }else{
                     for(auto iter = intersections.begin(); iter != intersections.end(); iter++){
                         nodeIdx = node.leftFirst + (*iter).childIdx;
-                        push(
-                            StackEntry(
-                                calcNodePtr(nodeIdx), 
-                                iter == intersections.begin()
-                            )
-                        );
+                        stack.push(calcNodePtr(base_ptr, nodeIdx), iter == intersections.begin());
                     }
                 }
                 level++;
@@ -118,7 +114,7 @@ void RestartTrailTraversal::traverse(std::pair<Ray, Hit>& ray_buf, per_thread_in
                 dcache_read(&blas_node, blas_node_ptr, sizeof(BLASNode));
                 thread_info.RT_mem_accesses.emplace_back(blas_node_ptr, sizeof(BLASNode),TransactionType::BVH_INSTANCE_LEAF);
 
-                ray = ray_transform(ray_buf.first, blas_node.invTransform);
+                cur_ray = ray_transform(ray, blas_node.invTransform);
 
                 base_ptr = qBvh_ptr + blas_node.bvh_offset * sizeof(BVHNode);
                 node_ptr = base_ptr;
@@ -137,34 +133,40 @@ void RestartTrailTraversal::traverse(std::pair<Ray, Hit>& ray_buf, per_thread_in
                     
 
                     float bx, by, bz;
-                    float d = ray_tri_intersect(ray, tri, bx, by, bz);
+                    float d = ray_tri_intersect(cur_ray, tri, bx, by, bz);
 
-                    if (d < ray_buf.second.dist) {
-                        ray_buf.second.dist = d;
-                        ray_buf.second.bx = bx;
-                        ray_buf.second.by = by;
-                        ray_buf.second.bz = bz;
-                        ray_buf.second.blasIdx = blasIdx;
-                        ray_buf.second.triIdx = triIdx;
+                    if (d < hit.dist) {
+                        hit.pending_dist = d;
+                        //hit.dist = d;
+                        hit.bx = bx;
+                        hit.by = by;
+                        hit.bz = bz;
+                        hit.blasIdx = blasIdx;
+                        hit.triIdx = triIdx;
                         
                         thread_info.RT_mem_accesses.emplace_back(tri_addr, sizeof(Triangle),TransactionType::BVH_QUAD_LEAF_HIT);
+
+                        //-------clear stack for now to ensure correctness--------
+                        while(!stack.empty()){
+                            stack.pop();
+                        }
+                        //--------------------------------------------------------
+                        
+                        return false;
                     }else{
                         thread_info.RT_mem_accesses.emplace_back(tri_addr, sizeof(Triangle),TransactionType::BVH_QUAD_LEAF);
                     }
                 }
 
-                exit = pop();
+                exit = pop(base_ptr, node_ptr, level, trail, stack);
             }
         }
     }
+
+    return true;
 }
 
-
-void RestartTrailTraversal::push(StackEntry e){
-    traversal_stack.push(e);
-}
-
-int32_t RestartTrailTraversal::findNextParentLevel(){
+int32_t BVHTraverser::findNextParentLevel(const uint32_t level, const TraversalTrail& trail){
     for(int i=level-1; i>=0; i--){
         if(trail[i] != BVH_WIDTH){
             return i;
@@ -173,8 +175,14 @@ int32_t RestartTrailTraversal::findNextParentLevel(){
     return -1;
 }
 
-bool RestartTrailTraversal::pop(){
-    int32_t parentLevel = findNextParentLevel();
+bool BVHTraverser::pop(
+    uint32_t& base_ptr,
+    uint32_t& node_ptr,
+    uint32_t& level,
+    TraversalTrail& trail,
+    TraversalStack& stack
+){
+    int32_t parentLevel = findNextParentLevel(level, trail);
 
     if(parentLevel < 0){
         return true;
@@ -182,17 +190,17 @@ bool RestartTrailTraversal::pop(){
 
     trail[parentLevel]++;
 
-    for(int i=parentLevel+1; i<MAX_LEVEL; i++){
+    for(int i=parentLevel+1; i<MAX_TRAIL_LEVEL; i++){
         trail[i] = 0;
     }
 
-    if(traversal_stack.empty()){
+    if(stack.empty()){
         base_ptr = tlas_ptr;
         node_ptr = tlas_ptr;
         level = 0;
         //std::cout << "Restarting..." << std::endl;
     }else{
-        StackEntry e = traversal_stack.pop();
+        TraversalStack::Entry e = stack.pop();
         node_ptr = e.node_ptr;
         if(e.last){
             trail[parentLevel] = BVH_WIDTH;
@@ -203,18 +211,18 @@ bool RestartTrailTraversal::pop(){
     return false;
 }
 
-void RestartTrailTraversal::read_node(BVHNode *node){
+void BVHTraverser::read_node(BVHNode *node, uint32_t node_ptr){
     dcache_read(node, node_ptr, sizeof(BVHNode));
 }
 
-bool RestartTrailTraversal::isTopLevel(BVHNode *node){
+bool BVHTraverser::isTopLevel(BVHNode *node){
     return (uint32_t)(node->imask) == 1;
 }
 
-bool RestartTrailTraversal::isLeaf(BVHNode *node){
+bool BVHTraverser::isLeaf(BVHNode *node){
     return (isTopLevel(node) && node->leafData != UINT32_MAX) || (!isTopLevel(node) && node->leafData != 0);
 }
 
-void RestartTrailTraversal::dcache_read(void* data, uint64_t addr, uint32_t size) {
+void BVHTraverser::dcache_read(void* data, uint64_t addr, uint32_t size) {
     rt_unit_->dcache_read(data, addr, size);
 }

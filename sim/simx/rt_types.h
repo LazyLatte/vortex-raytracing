@@ -1,12 +1,15 @@
 #pragma once
 #include <VX_config.h>
 #include <deque>
+#include <array>
 #include <vector>
 #include <utility>
 #include <cstdint>
 #include <cassert>
 
 #define LARGE_FLOAT 1e30f
+#define MAX_TRAIL_LEVEL 32
+#define RT_STACK_SIZE 5
 
 namespace vortex {
     struct BVHChildData {
@@ -39,30 +42,76 @@ namespace vortex {
         float v0_x, v0_y, v0_z, v1_x, v1_y, v1_z, v2_x, v2_y, v2_z;
     };
 
-    struct ChildIntersection {
-        float dist;
-        uint32_t childIdx;
-
-        ChildIntersection(float dist, uint32_t childIdx): dist(dist), childIdx(childIdx){}
+    struct Ray {
+        float ro_x, ro_y, ro_z, rd_x, rd_y, rd_z;
     };
 
-    template<typename T>
-    class ShortStack {
-        public:
-            ShortStack(uint32_t capacity): cap_(capacity){}
+    struct Hit {
+        float dist = LARGE_FLOAT, pending_dist;
+        float bx, by, bz;
+        uint32_t blasIdx, triIdx;
+    };
 
-            void push(T val) {
+    class RayList {
+    public:
+        RayList(){
+            alive_.push_back(true); // rayID starts at 1
+        }
+
+        uint32_t allocate(){
+            if (!free_.empty()) {
+                uint32_t rayID = free_.back();
+                free_.pop_back();
+                alive_[rayID] = true;
+                return rayID;
+            } else {
+                alive_.push_back(true);
+                return alive_.size() - 1;
+            }
+        }
+
+        void free(uint32_t rayID) {
+            alive_[rayID] = false;
+            free_.push_back(rayID);
+        }
+
+        bool valid(uint32_t rayID) const {
+            return alive_[rayID];
+        }
+
+    private:
+        std::vector<bool> alive_;
+        std::vector<uint32_t> free_;
+    };
+
+    typedef std::array<uint32_t, MAX_TRAIL_LEVEL> TraversalTrail; //trail[i]: 0 ~ BVH_WIDTH
+
+    class TraversalStack {
+        public:
+            struct Entry {
+                bool last;
+                uint32_t node_ptr;
+
+                Entry(uint32_t _node_ptr, bool _last)
+                    : node_ptr(_node_ptr)
+                    , last(_last) 
+                {}
+            };
+
+            TraversalStack(): cap_(0){}
+            TraversalStack(uint32_t capacity): cap_(capacity){}
+
+            void push(uint32_t node_ptr, bool last) {
                 if (cap_ == 0) return; 
                 if (stack_.size() == cap_) {
                     stack_.pop_front();  
                 }
-                stack_.push_back(std::move(val));
+                stack_.emplace_back(node_ptr, last);
             }
 
-
-            T pop() {
+            Entry pop() {
                 assert(!stack_.empty());
-                T el = std::move(stack_.back());
+                Entry el = std::move(stack_.back());
                 stack_.pop_back();
                 return el;
             }
@@ -71,14 +120,9 @@ namespace vortex {
             bool empty() const noexcept { return stack_.empty(); }
         private:
             std::size_t cap_;
-            std::deque<T> stack_;
+            std::deque<Entry> stack_;
     };
 
-    struct StackEntry{
-        uint32_t node_ptr;
-        bool last;
-        StackEntry(uint32_t node_ptr, bool last): node_ptr(node_ptr), last(last) {}
-    };
 
     class ShaderQueue {
         public:
@@ -110,65 +154,6 @@ namespace vortex {
             std::size_t cap_;
             std::size_t width_;
             std::deque<std::vector<uint32_t>> queue_;
-    };
-
-
-    struct Hit {
-        float dist = LARGE_FLOAT, bx, by, bz;
-        uint32_t blasIdx, triIdx;
-    };
-
-    struct Ray {
-        float ro_x, ro_y, ro_z, rd_x, rd_y, rd_z;
-    };
-
-    class RayBuffer {
-    public:
-        uint32_t allocate(){
-            if (!free_.empty()) {
-                uint32_t rayID = free_.back();
-                free_.pop_back();
-                alive_[rayID] = true;
-                return rayID;
-            } else {
-                data_.push_back(std::make_pair(Ray{}, Hit{}));
-                alive_.push_back(true);
-                return data_.size() - 1;
-            }
-        }
-
-        void set_ray_x(uint32_t rayID, float ro_x, float rd_x){
-            data_[rayID].first.ro_x = ro_x;
-            data_[rayID].first.rd_x = rd_x;
-        }
-
-        void set_ray_y(uint32_t rayID, float ro_y, float rd_y){
-            data_[rayID].first.ro_y = ro_y;
-            data_[rayID].first.rd_y = rd_y;
-        }
-
-        void set_ray_z(uint32_t rayID, float ro_z, float rd_z){
-            data_[rayID].first.ro_z = ro_z;
-            data_[rayID].first.rd_z = rd_z;
-        }
-
-        void remove(uint32_t rayID) {
-            alive_[rayID] = false;
-            free_.push_back(rayID);
-        }
-
-        std::pair<Ray, Hit>& get(uint32_t rayID) {
-            return data_[rayID];
-        }
-
-        bool valid(uint32_t rayID) const {
-            return alive_[rayID];
-        }
-
-    private:
-        std::vector<std::pair<Ray, Hit>> data_;
-        std::vector<bool> alive_;
-        std::vector<uint32_t> free_;
     };
 
 }

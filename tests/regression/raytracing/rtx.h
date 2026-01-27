@@ -4,7 +4,7 @@
 #include "rtx_shading.h"
 #include <vx_print.h>
 #include <vx_spawn.h>
-#include <vx_trace.h>
+#include <vx_raytrace.h>
 #include <limits>
 
 #define BVH_STACK_SIZE 64

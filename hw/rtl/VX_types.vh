@@ -226,4 +226,27 @@
 `define VX_CSR_NUM_CORES                12'hFC2
 `define VX_CSR_LOCAL_MEM_BASE           12'hFC3
 
+`define VX_RT_RAY_RO_X                  12'hFD0
+`define VX_RT_RAY_RO_Y                  12'hFD1
+`define VX_RT_RAY_RO_Z                  12'hFD2
+`define VX_RT_RAY_RD_X                  12'hFD3
+`define VX_RT_RAY_RD_Y                  12'hFD4
+`define VX_RT_RAY_RD_Z                  12'hFD5
+`define VX_RT_HIT_DIST                  12'hFD6
+`define VX_RT_HIT_BX                    12'hFD7
+`define VX_RT_HIT_BY                    12'hFD8
+`define VX_RT_HIT_BZ                    12'hFD9
+`define VX_RT_HIT_BLAS_IDX              12'hFDA
+`define VX_RT_HIT_TRI_IDX               12'hFDB
+
+`define VX_RT_COLOR_R                   12'hFDC
+`define VX_RT_COLOR_G                   12'hFDD
+`define VX_RT_COLOR_B                   12'hFDE
+
+`define VX_RT_RAY_BOUNCE                12'hFDF
+
+`define VX_RT_COMMIT_CONT               12'hFF0
+`define VX_RT_COMMIT_ACCEPT             12'hFF1
+`define VX_RT_COMMIT_TERM               12'hFF2
+
 `endif // VX_TYPES_VH
