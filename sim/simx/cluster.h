@@ -35,7 +35,7 @@ public:
   struct AsyncClusterBarrier {
   static constexpr uint32_t MAX_CORES = 32;
 
-  CoreMask   arrived_cores; 
+  CoreMask   arrived_cores;
   CoreMask   waiting_cores;
   uint32_t   arrived_count;
   uint32_t   expect_cores;
@@ -99,6 +99,9 @@ public:
 
   uint32_t async_barrier_arrive(uint32_t bar_id, uint32_t count, uint32_t core_id);
   bool async_barrier_wait(uint32_t bar_id, uint32_t token, uint32_t core_id);
+  uint32_t async_barrier_token(uint32_t bar_id) const {
+    return async_barriers_.at(bar_id).generation;
+  }
 
   PerfStats perf_stats() const;
 
