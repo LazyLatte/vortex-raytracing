@@ -113,8 +113,8 @@ package VX_tcu_pkg;
             TCU_TF32_ID: return 8;
             TCU_FP16_ID: return 5;
             TCU_BF16_ID: return 8;
-            TCU_FP8_ID:  return 5;
-            TCU_BF8_ID:  return 4;
+            TCU_FP8_ID:  return 4;
+            TCU_BF8_ID:  return 5;
             default:     return 0;
         endcase
     endfunction
@@ -125,8 +125,8 @@ package VX_tcu_pkg;
             TCU_TF32_ID: return 10;
             TCU_FP16_ID: return 10;
             TCU_BF16_ID: return 7;
-            TCU_FP8_ID:  return 2;
-            TCU_BF8_ID:  return 3;
+            TCU_FP8_ID:  return 3;
+            TCU_BF8_ID:  return 2;
             default:     return 0;
         endcase
     endfunction
