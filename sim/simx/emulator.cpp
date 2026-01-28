@@ -291,9 +291,7 @@ uint32_t Emulator::barrier_arrive(uint32_t bar_id, uint32_t count, uint32_t wid)
     uint32_t bar_idx = bar_id & 0x7fffffff;
 
     if (is_cluster) {
-        // cluster-level implementation, prolly not needed
-        core_->socket()->async_barrier_arrive(bar_idx, count, core_->id());
-        return 0; // cluster level doesn't use token
+        return core_->socket()->async_barrier_arrive(bar_idx, count, core_->id());
     }
 
     auto& b = async_barriers_.at(bar_idx);
@@ -352,7 +350,7 @@ bool Emulator::barrier_wait(uint32_t bar_id, uint32_t token, uint32_t wid) {
             stalled_warps_.set(wid);
             return false;
         }
-        stalled_warps_.reset(wid);
+        // stalled_warps_.reset(wid);
         return true;
     }
 
@@ -367,7 +365,7 @@ bool Emulator::barrier_wait(uint32_t bar_id, uint32_t token, uint32_t wid) {
  
 
         b.waiting_mask.reset(wid);
-        stalled_warps_.reset(wid);
+        // stalled_warps_.reset(wid);
 
 
         return true;

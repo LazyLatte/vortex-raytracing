@@ -508,8 +508,8 @@ module VX_decode import VX_gpu_pkg::*; #(
                                 op_type = INST_OP_BITS'(INST_SFU_JOIN);
                                 `USED_IREG (rs1);
                             end
-                            3'h4: begin // BAR
-                                op_type = INST_OP_BITS'(INST_SFU_BAR);
+                            3'h4: begin // BARRIER (legacy sync barrier)
+                                op_type = INST_OP_BITS'(INST_SFU_BARRIER);
                                 `USED_IREG (rs1);
                                 `USED_IREG (rs2);
                             end
