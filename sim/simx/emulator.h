@@ -106,6 +106,8 @@ public:
 
   bool wspawn(uint32_t num_warps, Word nextPC);
 
+  bool setTmask(uint32_t wid, const ThreadMask& tmask);
+
   int get_exitcode() const;
 
   void dcache_read(void* data, uint64_t addr, uint32_t size);
@@ -175,7 +177,7 @@ private:
     uint32_t arrived_count;
     uint32_t expect_count;
     uint32_t generation;
-    
+
     std::array<uint32_t, MAX_WARPS> wait_phase;
 
     AsyncBarrier()
@@ -199,7 +201,7 @@ private:
 };
 
 
-std::vector<AsyncBarrier> async_barriers_;  
+std::vector<AsyncBarrier> async_barriers_;
 
   struct ClusterAsyncBarrier {
     WarpMask arrived_warps;
@@ -236,6 +238,7 @@ std::vector<AsyncBarrier> async_barriers_;
   VecUnit::Ptr vec_unit_;
 #endif
 
+  std::vector<AsyncBarrier> async_barriers_;
   PoolAllocator<Instr, 64> instr_pool_;
 };
 

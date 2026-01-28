@@ -90,7 +90,7 @@ public:
 					continue; // stall
 			}
 
-			DT(4, simobject_->name() << "-bank" << i << "-req : " << bank_req);
+			DT(4, simobject_->name() << "-bank" << i << " req : " << bank_req);
 
 			// update perf counters
 			perf_stats_.reads += !bank_req.write;
