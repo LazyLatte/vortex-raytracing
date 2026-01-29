@@ -36,6 +36,7 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
 
     localparam E_TF32 = VX_tcu_pkg::exp_bits(TCU_TF32_ID);
     localparam S_TF32 = VX_tcu_pkg::sign_pos(TCU_TF32_ID);
+    localparam B_TF32 = (1 << (E_TF32 - 1)) - 1;
 
     localparam E_FP16 = VX_tcu_pkg::exp_bits(TCU_FP16_ID);
     localparam S_FP16 = VX_tcu_pkg::sign_pos(TCU_FP16_ID);
@@ -51,7 +52,7 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
     localparam E_BF8 = VX_tcu_pkg::exp_bits(TCU_BF8_ID);
     localparam B_BF8 = (1 << (E_BF8 - 1)) - 1 ;
 
-    localparam [EXP_W-1:0] BIAS_CONST_TF32 = EXP_W'(F32_BIAS + ALIGN_SHIFT - W);
+    localparam [EXP_W-1:0] BIAS_CONST_TF32 = EXP_W'(F32_BIAS - 2*B_TF32 + ALIGN_SHIFT - W);
     localparam [EXP_W-1:0] BIAS_CONST_BF16 = EXP_W'(F32_BIAS - 2*B_BF16 + ALIGN_SHIFT - W);
     localparam [EXP_W-1:0] BIAS_CONST_FP16 = EXP_W'(F32_BIAS - 2*B_FP16 + ALIGN_SHIFT - W);
 
@@ -159,10 +160,6 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
             ea_f8_sel = '0; eb_f8_sel = '0; bias_f8_sel = '0; is_zero_f8 = 2'b11;
 
             case(fmtf)
-                TCU_TF32_ID: begin
-                    ea_sel = ea_tf32[i]; eb_sel = eb_tf32[i];
-                    is_zero = z_tf32[i]; bias_sel = BIAS_CONST_TF32;
-                end
                 TCU_FP16_ID: begin
                     ea_sel = ea_fp16[i]; eb_sel = eb_fp16[i];
                     is_zero = z_fp16[i]; bias_sel = BIAS_CONST_FP16;
@@ -180,6 +177,10 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
                     ea_f8_sel[0] = ea_bf8[i][0]; eb_f8_sel[0] = eb_bf8[i][0];
                     ea_f8_sel[1] = ea_bf8[i][1]; eb_f8_sel[1] = eb_bf8[i][1];
                     is_zero_f8   = z_bf8[i];     bias_f8_sel  = BIAS_CONST_BF8;
+                end
+                TCU_TF32_ID: begin
+                    ea_sel = ea_tf32[i]; eb_sel = eb_tf32[i];
+                    is_zero = z_tf32[i]; bias_sel = BIAS_CONST_TF32;
                 end
                 default: ;
             endcase
