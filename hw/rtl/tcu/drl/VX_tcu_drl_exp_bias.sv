@@ -144,7 +144,7 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
         logic [7:0]       ea_sel_f16, eb_sel_f16;
         logic [EXP_W-1:0] bias_sel_f16;
         logic             is_zero_f16;
-        wire [EXP_W-1:0]  sum_shared;
+        wire [EXP_W-1:0]  sum_f16;
 
         // Packed signals (FP8/BF8)
         logic [1:0][7:0]  ea_f8_sel, eb_f8_sel;
@@ -155,6 +155,12 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
         // Mux Selection
         always_comb begin
             case (fmtf)
+                TCU_TF32_ID: begin
+                    ea_sel_f16   = ea_tf32[i];
+                    eb_sel_f16   = eb_tf32[i];
+                    is_zero_f16  = z_tf32[i];
+                    bias_sel_f16 = BIAS_CONST_TF32;
+                end
                 TCU_FP16_ID: begin
                     ea_sel_f16   = ea_fp16[i];
                     eb_sel_f16   = eb_fp16[i];
@@ -179,12 +185,6 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
                     is_zero_f8  = z_bf8[i];
                     bias_f8_sel = BIAS_CONST_BF8;
                 end
-                TCU_TF32_ID: begin
-                    ea_sel_f16   = ea_tf32[i];
-                    eb_sel_f16   = eb_tf32[i];
-                    is_zero_f16  = z_tf32[i];
-                    bias_sel_f16 = BIAS_CONST_TF32;
-                end
                 default: begin
                     ea_sel_f16  = 'x;
                     eb_sel_f16  = 'x;
@@ -204,8 +204,8 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
             .W (EXP_W),
             .S (EXP_W)
         ) exp_adder_f16 (
-            .operands ({bias_sel_f16, EXP_W'(eb_sel_f16), EXP_W'(ea_sel_f16)}),
-            .sum      (sum_shared),
+            .operands ({EXP_W'(ea_sel_f16), EXP_W'(eb_sel_f16), bias_sel_f16}),
+            .sum      (sum_f16),
             `UNUSED_PIN (cout)
         );
 
@@ -215,7 +215,7 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
             .W (EXP_W),
             .S (EXP_W)
         ) exp_adder_f8_0 (
-            .operands ({bias_f8_sel, EXP_W'(eb_f8_sel[0]), EXP_W'(ea_f8_sel[0])}),
+            .operands ({EXP_W'(ea_f8_sel[0]), EXP_W'(eb_f8_sel[0]), bias_f8_sel}),
             .sum      (sum_f8_0),
             `UNUSED_PIN (cout)
         );
@@ -225,7 +225,7 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
             .W (EXP_W),
             .S (EXP_W)
         ) exp_adder_f8_1 (
-            .operands ({bias_f8_sel, EXP_W'(eb_f8_sel[1]), EXP_W'(ea_f8_sel[1])}),
+            .operands ({EXP_W'(ea_f8_sel[1]), EXP_W'(eb_f8_sel[1]), bias_f8_sel}),
             .sum      (sum_f8_1),
             `UNUSED_PIN (cout)
         );
@@ -241,7 +241,7 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
         always_comb begin
             case(fmtf)
                 TCU_TF32_ID, TCU_FP16_ID, TCU_BF16_ID: begin
-                    raw_exp_y[i]      = is_zero_f16 ? EXP_W'(0) : sum_shared;
+                    raw_exp_y[i] = is_zero_f16 ? EXP_W'(0) : sum_f16;
                 end
                 TCU_FP8_ID, TCU_BF8_ID: begin
                     raw_exp_y[i] = diff_f8_sign ?
