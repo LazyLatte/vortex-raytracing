@@ -53,11 +53,11 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
     localparam S_BF8 = VX_tcu_pkg::sign_pos(TCU_BF8_ID);
     localparam B_BF8 = (1 << (E_BF8 - 1)) - 1;
 
-    localparam [EXP_W-1:0] BIAS_CONST_TF32 = EXP_W'(F32_BIAS + ALIGN_SHIFT - W);
-    localparam [EXP_W-1:0] BIAS_CONST_FP16 = EXP_W'(F32_BIAS - 2*B_FP16 + ALIGN_SHIFT - W);
-    localparam [EXP_W-1:0] BIAS_CONST_BF16 = EXP_W'(F32_BIAS - 2*B_BF16 + ALIGN_SHIFT - W);
-    localparam [EXP_W-1:0] BIAS_CONST_FP8  = EXP_W'(F32_BIAS - 2*B_FP8 + ALIGN_SHIFT - W);
-    localparam [EXP_W-1:0] BIAS_CONST_BF8  = EXP_W'(F32_BIAS - 2*B_BF8 + ALIGN_SHIFT - W);
+    localparam [EXP_W-1:0] BIAS_CONST_TF32 = EXP_W'(F32_BIAS - 2*B_TF32 + ALIGN_SHIFT   - W);
+    localparam [EXP_W-1:0] BIAS_CONST_FP16 = EXP_W'(F32_BIAS - 2*B_FP16 + ALIGN_SHIFT   - W);
+    localparam [EXP_W-1:0] BIAS_CONST_BF16 = EXP_W'(F32_BIAS - 2*B_BF16 + ALIGN_SHIFT   - W);
+    localparam [EXP_W-1:0] BIAS_CONST_FP8  = EXP_W'(F32_BIAS - 2*B_FP8  + 2*ALIGN_SHIFT - W);
+    localparam [EXP_W-1:0] BIAS_CONST_BF8  = EXP_W'(F32_BIAS - 2*B_BF8  + 2*ALIGN_SHIFT - W);
 
     // ----------------------------------------------------------------------
     // 1. Inputs Setup
@@ -129,7 +129,7 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
             wire [31:0] ra = a_row[i/2];
             wire [31:0] rb = b_col[i/2];
             assign ea_bf8[i][j] = cls_bf8[0][idx].is_sub ? 8'd1 : {3'd0, ra[S_BF8-1+OFF -: E_BF8]};
-            assign eb_bf8[i][j] = cls_bf8[1][idx].is_sub ? 8'd1 : {3'd0, ra[S_BF8-1+OFF -: E_BF8]};
+            assign eb_bf8[i][j] = cls_bf8[1][idx].is_sub ? 8'd1 : {3'd0, rb[S_BF8-1+OFF -: E_BF8]};
             assign z_bf8[i][j]  = cls_bf8[0][idx].is_zero | cls_bf8[1][idx].is_zero | ~vld_mask[idx*2];
             `UNUSED_VAR({ra, rb})
         end
@@ -233,7 +233,9 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
         // 2c. Difference calculation for alignment
         wire [EXP_W-1:0] diff_f8 = sum_f8_1 - sum_f8_0;
         wire diff_f8_sign = diff_f8[EXP_W-1];
-        assign exp_diff_f8[i] = {diff_f8_sign, diff_f8[4:0]};
+        wire [EXP_W-1:0] diff_f8_abs = diff_f8_sign ? -diff_f8 : diff_f8;
+        `UNUSED_VAR (diff_f8_abs[EXP_W-1:5])
+        assign exp_diff_f8[i] = {diff_f8_sign, diff_f8_abs[4:0]};
 
         // Final Output Mux
         always_comb begin
