@@ -30,8 +30,8 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*;  #(
     // 1. Classification
     // ----------------------------------------------------------------------
     fedp_class_t [N-1:0] cls_tf32 [2];
-    VX_tcu_drl_classifier #(.N(N), .WIDTH(32), .FMT(TCU_FP32_ID)) c_a_tf32 (.val(a_row), .cls(cls_tf32[0]));
-    VX_tcu_drl_classifier #(.N(N), .WIDTH(32), .FMT(TCU_FP32_ID)) c_b_tf32 (.val(b_col), .cls(cls_tf32[1]));
+    VX_tcu_drl_classifier #(.N(N), .WIDTH(32), .FMT(TCU_TF32_ID)) c_a_tf32 (.val(a_row), .cls(cls_tf32[0]));
+    VX_tcu_drl_classifier #(.N(N), .WIDTH(32), .FMT(TCU_TF32_ID)) c_b_tf32 (.val(b_col), .cls(cls_tf32[1]));
 
     fedp_class_t [TCK-1:0] cls_fp16 [2];
     VX_tcu_drl_classifier #(.N(2 * N), .WIDTH(16), .FMT(TCU_FP16_ID)) c_a_fp16 (.val(a_row), .cls(cls_fp16[0]));
@@ -63,19 +63,19 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*;  #(
         .N   (N),
         .TCK (TCK)
     ) shared_mul_inst (
-        .vld_mask       (vld_mask),
-        .fmt_s          (fmt_s),
-        .a_row          (a_row),
-        .b_col          (b_col),
-        .c_val          (c_val),
-        .cls_tf32       (cls_tf32),
-        .cls_fp16       (cls_fp16),
-        .cls_bf16       (cls_bf16),
-        .cls_fp8        (cls_fp8),
-        .cls_bf8        (cls_bf8),
-        .cls_c          (cls_c[0]),
-        .exp_diff_f8   (exp_diff_f8),
-        .y              (raw_sigs)
+        .vld_mask   (vld_mask),
+        .fmt_s      (fmt_s),
+        .a_row      (a_row),
+        .b_col      (b_col),
+        .c_val      (c_val),
+        .cls_tf32   (cls_tf32),
+        .cls_fp16   (cls_fp16),
+        .cls_bf16   (cls_bf16),
+        .cls_fp8    (cls_fp8),
+        .cls_bf8    (cls_bf8),
+        .cls_c      (cls_c[0]),
+        .exp_diff_f8(exp_diff_f8),
+        .y          (raw_sigs)
     );
 
     // ----------------------------------------------------------------------
@@ -88,19 +88,19 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*;  #(
         .W   (W),
         .EXP_W(EXP_W)
     ) exp_bias_inst (
-        .vld_mask       (vld_mask),
-        .fmtf           (fmt_s[2:0]),
-        .a_row          (a_row),
-        .b_col          (b_col),
-        .c_val          (c_val),
-        .cls_tf32       (cls_tf32),
-        .cls_fp16       (cls_fp16),
-        .cls_bf16       (cls_bf16),
-        .cls_fp8        (cls_fp8),
-        .cls_bf8        (cls_bf8),
-        .cls_c          (cls_c[0]),
-        .raw_exp_y      (raw_exps),
-        .exp_diff_f8    (exp_diff_f8)
+        .vld_mask   (vld_mask),
+        .fmtf       (fmt_s[2:0]),
+        .a_row      (a_row),
+        .b_col      (b_col),
+        .c_val      (c_val),
+        .cls_tf32   (cls_tf32),
+        .cls_fp16   (cls_fp16),
+        .cls_bf16   (cls_bf16),
+        .cls_fp8    (cls_fp8),
+        .cls_bf8    (cls_bf8),
+        .cls_c      (cls_c),
+        .raw_exp_y  (raw_exps),
+        .exp_diff_f8(exp_diff_f8)
     );
 
     // ----------------------------------------------------------------------
@@ -129,7 +129,9 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*;  #(
         .cls_tf32   (cls_tf32),
         .cls_fp16   (cls_fp16),
         .cls_bf16   (cls_bf16),
-        .cls_c      (cls_c[0]),
+        .cls_fp8    (cls_fp8),
+        .cls_bf8    (cls_bf8),
+        .cls_c      (cls_c),
         .exceptions (exceptions)
     );
 

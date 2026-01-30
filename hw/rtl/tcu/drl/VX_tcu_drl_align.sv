@@ -23,7 +23,7 @@ module VX_tcu_drl_align import VX_tcu_pkg::*; #(
 
     for (genvar i = 0; i < N; ++i) begin : g_align_lanes
         // 1. Unpack Sign and Magnitude
-        wire in_sign    = sigs_in[i][W-1];
+        wire in_sign = sigs_in[i][W-1];
         wire [W-2:0] in_mag = sigs_in[i][W-2:0];
 
         // 2. Pre-Shift Magnitude

@@ -35,6 +35,7 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
 
     localparam E_TF32 = VX_tcu_pkg::exp_bits(TCU_TF32_ID);
     localparam S_TF32 = VX_tcu_pkg::sign_pos(TCU_TF32_ID);
+    localparam B_TF32 = (1 << (E_TF32 - 1)) - 1;
 
     localparam E_FP16 = VX_tcu_pkg::exp_bits(TCU_FP16_ID);
     localparam S_FP16 = VX_tcu_pkg::sign_pos(TCU_FP16_ID);
@@ -70,14 +71,14 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
 
     // --- TF32 Preparation ---
     for (genvar i = 0; i < TCK; ++i) begin : g_prep_tf32
-        if ((i % 2) == 0) begin
+        if ((i % 2) == 0) begin : g_even_lane
             wire [31:0] ra = a_row[i/2];
             wire [31:0] rb = b_col[i/2];
             `UNUSED_VAR({ra, rb})
             assign ea_tf32[i] = cls_tf32[0][i/2].is_sub ? 8'd1 : ra[S_TF32-1 -: E_TF32];
             assign eb_tf32[i] = cls_tf32[1][i/2].is_sub ? 8'd1 : rb[S_TF32-1 -: E_TF32];
             assign z_tf32[i]  = cls_tf32[0][i/2].is_zero | cls_tf32[1][i/2].is_zero | ~vld_mask[i*4];
-        end else begin
+        end else begin : g_odd_lane
             assign ea_tf32[i] = 8'd0;
             assign eb_tf32[i] = 8'd0;
             assign z_tf32[i]  = 1'b1;
@@ -153,16 +154,7 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
 
         // Mux Selection
         always_comb begin
-            ea_sel_f16 = 8'd0; eb_sel_f16 = 8'd0; bias_sel_f16 = '0; is_zero_f16 = 1'b1;
-            ea_f8_sel = '0; eb_f8_sel = '0; bias_f8_sel = '0; is_zero_f8 = 2'b11;
-
-            case(fmtf)
-                TCU_TF32_ID: begin
-                    ea_sel_f16   = ea_tf32[i];
-                    eb_sel_f16   = eb_tf32[i];
-                    is_zero_f16  = z_tf32[i];
-                    bias_sel_f16 = BIAS_CONST_TF32;
-                end
+            case (fmtf)
                 TCU_FP16_ID: begin
                     ea_sel_f16   = ea_fp16[i];
                     eb_sel_f16   = eb_fp16[i];
@@ -187,7 +179,22 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
                     is_zero_f8  = z_bf8[i];
                     bias_f8_sel = BIAS_CONST_BF8;
                 end
-                default: ;
+                TCU_TF32_ID: begin
+                    ea_sel_f16   = ea_tf32[i];
+                    eb_sel_f16   = eb_tf32[i];
+                    is_zero_f16  = z_tf32[i];
+                    bias_sel_f16 = BIAS_CONST_TF32;
+                end
+                default: begin
+                    ea_sel_f16  = 'x;
+                    eb_sel_f16  = 'x;
+                    bias_sel_f16= 'x;
+                    is_zero_f16 = 'x;
+                    ea_f8_sel   = 'x;
+                    eb_f8_sel   = 'x;
+                    bias_f8_sel = 'x;
+                    is_zero_f8  = 'x;
+                end
             endcase
         end
 
