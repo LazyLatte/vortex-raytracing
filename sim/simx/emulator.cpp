@@ -77,7 +77,6 @@ Emulator::Emulator(const Arch &arch, const DCRS &dcrs, Core* core)
     , dcrs_(dcrs)
     , core_(core)
     , warps_(arch.num_warps(), arch.num_threads())
-    , barriers_(arch.num_barriers(), 0)
     , ipdom_size_(arch.num_threads()-1)
     , async_barriers_(arch.num_barriers())
     , cluster_async_barriers_(arch.num_barriers())
@@ -109,10 +108,6 @@ void Emulator::reset() {
 
   for (auto& warp : warps_) {
     warp.reset(startup_addr);
-  }
-
-  for (auto& barrier : barriers_) {
-    barrier.reset();
   }
 
   for (auto& async_bar : async_barriers_) {
@@ -252,10 +247,22 @@ void Emulator::resume(uint32_t wid) {
   } else {
     // resume all active warps
     for (uint32_t i = 0; i < arch_.num_warps(); ++i) {
-      if (active_warps_.test(i)) {
-        assert(stalled_warps_.test(i));
+      if (active_warps_.test(i) && stalled_warps_.test(i)) {
         stalled_warps_.reset(i);
         DT(3, core_->name() << " warp-state: wid=" << i << ", stalled=false");
+      }
+    }
+  }
+}
+
+void Emulator::resume_barrier(uint32_t bar_id) {
+  auto& b = cluster_async_barriers_.at(bar_id);
+  for (uint32_t w = 0; w < arch_.num_warps(); ++w) {
+    if (b.waiting_warps.test(w)) {
+      b.waiting_warps.reset(w);
+      if (active_warps_.test(w) && stalled_warps_.test(w)) {
+        stalled_warps_.reset(w);
+        DT(3, core_->name() << " warp-state: wid=" << w << ", stalled=false");
       }
     }
   }
@@ -270,6 +277,19 @@ bool Emulator::setTmask(uint32_t wid, const ThreadMask& tmask) {
   // deactivate warp if no active threads
   if (!tmask.any()) {
     active_warps_.reset(wid);
+    // If a warp deactivates while a global barrier is pending, re-evaluate
+    // whether the core has now met its arrival condition.
+    for (uint32_t i = 0, n = cluster_async_barriers_.size(); i < n; ++i) {
+      auto& b = cluster_async_barriers_.at(i);
+      if (!b.token_valid || b.core_arrived)
+        continue;
+      if ((b.arrived_warps & active_warps_) == active_warps_) {
+        uint32_t token2 = core_->socket()->async_barrier_arrive(i, b.expect_cores, core_->id());
+        assert(token2 == b.token);
+        (void)token2;
+        b.core_arrived = true;
+      }
+    }
     return false;
   }
   return true;
@@ -286,162 +306,129 @@ bool Emulator::wspawn(uint32_t num_warps, Word nextPC) {
   return false;
 }
 
-bool Emulator::barrier(uint32_t bar_id, uint32_t count, uint32_t wid) {
-  if (count < 2)
-    return true;
-
-  uint32_t bar_idx = bar_id & 0x7fffffff;
-  bool is_global = (bar_id >> 31);
-
-  auto& barrier = barriers_.at(bar_idx);
-  barrier.set(wid);
-
-  if (is_global) {
-    // global barrier handling
-    if (barrier.count() == active_warps_.count()) {
-      core_->socket()->barrier(bar_idx, count, core_->id());
-      barrier.reset();
-    }
-  } else {
-    // local barrier handling
-    if (barrier.count() == (size_t)count) {
-      // resume suspended warps
-      for (uint32_t i = 0; i < arch_.num_warps(); ++i) {
-        if (barrier.test(i)) {
-          DP(3, "*** Resume core #" << core_->id() << ", warp #" << i << " at barrier #" << bar_idx);
-          this->resume(i);
-        }
-      }
-      barrier.reset();
-    } else {
-      DP(3, "*** Suspend core #" << core_->id() << ", warp #" << wid << " at barrier #" << bar_idx);
-    }
-  }
-  return false;
-}
-
 uint32_t Emulator::barrier_arrive(uint32_t bar_id, uint32_t count, uint32_t wid) {
-    bool is_cluster = (bar_id >> 31);
-    uint32_t bar_idx = bar_id & 0x7fffffff;
+  bool is_cluster = (bar_id >> 31);
+  uint32_t bar_idx = bar_id & 0x7fffffff;
 
-    if (is_cluster) {
-        auto& b = cluster_async_barriers_.at(bar_idx);
+  if (is_cluster) {
+    auto& b = cluster_async_barriers_.at(bar_idx);
 
-        if (b.expect_cores == 0) {
-            b.expect_cores = count;
-        } else {
-            assert(b.expect_cores == count);
-        }
-
-        uint32_t gen = core_->socket()->cluster()->async_barrier_token(bar_idx);
-        if (b.token_valid && gen > b.token) {
-            b.arrived_warps.reset();
-            b.core_arrived = false;
-            b.token_valid = false;
-            b.token = 0;
-        }
-
-        if (!b.token_valid) {
-            b.token = gen;
-            b.token_valid = true;
-        } else {
-            assert(gen == b.token);
-        }
-
-        uint32_t token = b.token;
-
-        // Record warp arrival for this core.
-        b.arrived_warps.set(wid);
-
-        // Count a core's arrival only once all its currently-active warps have arrived.
-        if (!b.core_arrived && ((b.arrived_warps & active_warps_) == active_warps_)) {
-            uint32_t token2 = core_->socket()->async_barrier_arrive(bar_idx, count, core_->id());
-            assert(token2 == token);
-            (void)token2;
-            b.core_arrived = true;
-        }
-
-        return token;
+    uint32_t gen = core_->socket()->cluster()->async_barrier_token(bar_idx);
+    if (b.token_valid && gen > b.token) {
+      b.arrived_warps.reset();
+      b.waiting_warps.reset();
+      b.core_arrived = false;
+      b.expect_cores = 0;
+      b.token_valid = false;
+      b.token = 0;
     }
 
-    auto& b = async_barriers_.at(bar_idx);
-
-    // record expect_count to prevent different carrying different count (should be redundant)
-    if (b.expect_count == 0) {
-        b.expect_count = count;
+    if (b.expect_cores == 0) {
+      b.expect_cores = count;
+    } else {
+      assert(b.expect_cores == count);
     }
 
-    // Capture current generation as token BEFORE any updates
-    uint32_t token = b.generation;
-
-    // If arrived in the same generation before, skip but still return token
-    if (b.arrived_mask.test(wid)) {
-        return token;
+    if (!b.token_valid) {
+      b.token = gen;
+      b.token_valid = true;
+    } else {
+      assert(gen == b.token);
     }
 
-    // record the arrival
-    b.arrived_mask.set(wid);
-    ++b.arrived_count;
+    uint32_t token = b.token;
 
+    // Record warp arrival for this core.
+    b.arrived_warps.set(wid);
 
-    // If all warps arrived, update the generation
-    if (b.arrived_count == b.expect_count) {
-        uint32_t new_gen = b.generation + 1;
-
-        b.generation = new_gen;
-        b.arrived_count = 0;
-        b.arrived_mask.reset();
-
-        // wake all warps waiting for this generation
-        for (uint32_t w = 0; w < arch_.num_warps(); ++w) {
-            if (b.waiting_mask.test(w)) {
-                // Check if this warp's token indicates it should wake up
-                // A warp waiting with token T should wake when generation > T
-                b.waiting_mask.reset(w);
-                this->resume(w);
-            }
-        }
+    // For global barriers, only signal the cluster once all active warps arrived.
+    if (!b.core_arrived && ((b.arrived_warps & active_warps_) == active_warps_)) {
+      uint32_t token2 = core_->socket()->async_barrier_arrive(bar_idx, count, core_->id());
+      assert(token2 == token);
+      (void)token2;
+      b.core_arrived = true;
     }
 
     return token;
+  }
+
+  auto& b = async_barriers_.at(bar_idx);
+
+  // record expect_count to prevent different carrying different count (should be redundant)
+  if (b.expect_count == 0) {
+    b.expect_count = count;
+  }
+
+  // Capture current generation as token BEFORE any updates
+  uint32_t token = b.generation;
+
+  // If arrived in the same generation before, skip but still return token
+  if (b.arrived_mask.test(wid)) {
+    return token;
+  }
+
+  // record the arrival
+  b.arrived_mask.set(wid);
+  ++b.arrived_count;
+
+  // If all warps arrived, update the generation
+  if (b.arrived_count == b.expect_count) {
+    uint32_t new_gen = b.generation + 1;
+
+    b.generation = new_gen;
+    b.arrived_count = 0;
+    b.arrived_mask.reset();
+
+    // wake all warps waiting for this generation
+    for (uint32_t w = 0; w < arch_.num_warps(); ++w) {
+      if (b.waiting_mask.test(w)) {
+        // Check if this warp's token indicates it should wake up
+        // A warp waiting with token T should wake when generation > T
+        b.waiting_mask.reset(w);
+        this->resume(w);
+      }
+    }
+  }
+
+  return token;
 }
 
 
 // Async barrier wait: uses token to determine which generation to wait for
 // token: the value returned by barrier_arrive
 bool Emulator::barrier_wait(uint32_t bar_id, uint32_t token, uint32_t wid) {
-    bool is_cluster = (bar_id >> 31);
-    uint32_t bar_idx = bar_id & 0x7fffffff;
+  bool is_cluster = (bar_id >> 31);
+  uint32_t bar_idx = bar_id & 0x7fffffff;
 
-    if (is_cluster) {
-        bool ok = core_->socket()->async_barrier_wait(bar_idx, token, core_->id());
-        if (!ok) {
-            stalled_warps_.set(wid);
-            return false;
-        }
-        return true;
+  if (is_cluster) {
+    auto& b = cluster_async_barriers_.at(bar_idx);
+    bool ok = core_->socket()->async_barrier_wait(bar_idx, token, core_->id());
+    if (!ok) {
+      b.waiting_warps.set(wid);
+      stalled_warps_.set(wid);
+      return false;
     }
+    b.waiting_warps.reset(wid);
+    return true;
+  }
 
-    auto& b = async_barriers_.at(bar_idx);
+  auto& b = async_barriers_.at(bar_idx);
 
-    // Calculate desired generation from token
-    // Token represents the generation when arrive() was called
-    // We need to wait until generation > token (i.e., that phase completed)
-    uint32_t desired_gen = token + 1;
+  // Calculate desired generation from token
+  // Token represents the generation when arrive() was called
+  // We need to wait until generation > token (i.e., that phase completed)
+  uint32_t desired_gen = token + 1;
 
-    if (b.generation >= desired_gen) {
+  if (b.generation >= desired_gen) {
+    b.waiting_mask.reset(wid);
+    // stalled_warps_.reset(wid);
 
+    return true;
+  }
 
-        b.waiting_mask.reset(wid);
-        // stalled_warps_.reset(wid);
-
-
-        return true;
-    }
-
-    // Not reached, wait
-    b.waiting_mask.set(wid);
-    return false;
+  // Not reached, wait
+  b.waiting_mask.set(wid);
+  return false;
 }
 
 #ifdef VM_ENABLE

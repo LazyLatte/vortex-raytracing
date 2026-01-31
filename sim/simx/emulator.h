@@ -95,8 +95,7 @@ public:
   void suspend(uint32_t wid);
 
   void resume(uint32_t wid);
-
-  bool barrier(uint32_t bar_id, uint32_t count, uint32_t wid);
+  void resume_barrier(uint32_t bar_id);
 
   // Async barrier arrive: returns token (current generation)
   uint32_t barrier_arrive(uint32_t bar_id, uint32_t count, uint32_t wid);
@@ -162,7 +161,6 @@ private:
   std::vector<warp_t> warps_;
   WarpMask    active_warps_;
   WarpMask    stalled_warps_;
-  std::vector<WarpMask> barriers_;
   std::unordered_map<int, std::stringstream> print_bufs_;
   MemoryUnit  mmu_;
   uint32_t    ipdom_size_;
@@ -202,6 +200,7 @@ private:
 
   struct ClusterAsyncBarrier {
     WarpMask arrived_warps;
+    WarpMask waiting_warps;
     uint32_t expect_cores;
     uint32_t token;
     bool token_valid;
@@ -213,10 +212,12 @@ private:
         , token_valid(false)
         , core_arrived(false) {
       arrived_warps.reset();
+      waiting_warps.reset();
     }
 
     void reset() {
       arrived_warps.reset();
+      waiting_warps.reset();
       expect_cores = 0;
       token = 0;
       token_valid = false;
@@ -224,8 +225,8 @@ private:
     }
   };
 
+  std::vector<AsyncBarrier> async_barriers_;
   std::vector<ClusterAsyncBarrier> cluster_async_barriers_;
-
 
 #ifdef EXT_TCU_ENABLE
   TensorUnit::Ptr tensor_unit_;
@@ -234,8 +235,6 @@ private:
 #ifdef EXT_V_ENABLE
   VecUnit::Ptr vec_unit_;
 #endif
-
-  std::vector<AsyncBarrier> async_barriers_;
   PoolAllocator<Instr, 64> instr_pool_;
 };
 
