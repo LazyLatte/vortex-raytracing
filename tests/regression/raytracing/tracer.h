@@ -41,4 +41,9 @@ private:
   vx_buffer_h idxBuffer_ = nullptr;     // store triangle indices
 
   vx_buffer_h sbtBuffer_ = nullptr;
+  //vx_buffer_h shader_buffer_ = nullptr;
+  vx_buffer_h miss_shader_buffer_ = nullptr;
+  vx_buffer_h closest_hit_shader_buffer_ = nullptr;
+  vx_buffer_h intersection_shader_buffer_ = nullptr;
+  vx_buffer_h any_hit_shader_buffer_ = nullptr;
 };

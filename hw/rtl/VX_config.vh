@@ -407,9 +407,14 @@
 `define NUM_RTU_BLOCKS  1
 `endif
 
-// Number of RTU units
+// BVH Width
 `ifndef RT_BVH_WIDTH
 `define RT_BVH_WIDTH  4
+`endif
+
+// Traversal Stack Size
+`ifndef RT_STACK_SIZE
+`define RT_STACK_SIZE  5
 `endif
 
 // Size of Instruction Buffer

@@ -672,13 +672,10 @@ enum class RtuType {
   LOAD_X,
   LOAD_Y,
   LOAD_Z,
-  SET_BOUNCE,
+  SET_PAYLOAD_ADDR,
   TRACE,
   GET_WORK,
   GET_ATTR,
-  SET_COLOR_R,
-  SET_COLOR_G,
-  SET_COLOR_B,
   COMMIT
 };
 
@@ -686,18 +683,15 @@ struct IntrRtuArgs {};
 
 inline std::ostream &operator<<(std::ostream &os, const RtuType& type) {
   switch (type) {
-  case RtuType::INIT_RAY:    os << "INIT_RAY"; break;
-  case RtuType::LOAD_X:      os << "LOAD_X"; break;
-  case RtuType::LOAD_Y:      os << "LOAD_Y"; break;
-  case RtuType::LOAD_Z:      os << "LOAD_Z"; break;
-  case RtuType::SET_BOUNCE:  os << "SET_BOUNCE"; break;
-  case RtuType::TRACE:       os << "TRACE"; break;
-  case RtuType::GET_WORK:    os << "GET_WORK"; break;
-  case RtuType::GET_ATTR:    os << "GET_ATTR"; break;
-  case RtuType::SET_COLOR_R: os << "SET_COLOR_R"; break;
-  case RtuType::SET_COLOR_G: os << "SET_COLOR_G"; break;
-  case RtuType::SET_COLOR_B: os << "SET_COLOR_B"; break;
-  case RtuType::COMMIT:      os << "COMMIT"; break;
+  case RtuType::INIT_RAY:           os << "INIT_RAY"; break;
+  case RtuType::LOAD_X:             os << "LOAD_X"; break;
+  case RtuType::LOAD_Y:             os << "LOAD_Y"; break;
+  case RtuType::LOAD_Z:             os << "LOAD_Z"; break;
+  case RtuType::SET_PAYLOAD_ADDR:   os << "SET_PAYLOAD_ADDR"; break;
+  case RtuType::TRACE:              os << "TRACE"; break;
+  case RtuType::GET_WORK:           os << "GET_WORK"; break;
+  case RtuType::GET_ATTR:           os << "GET_ATTR"; break;
+  case RtuType::COMMIT:             os << "COMMIT"; break;
   default:
     assert(false);
   }

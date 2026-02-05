@@ -1490,8 +1490,8 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
       case RtuType::LOAD_Z: {
         rt_unit_->set_ray_properties(rs1_data, rs2_data, rs3_data, 2);
       } break;
-      case RtuType::SET_BOUNCE: {        
-        rt_unit_->set_ray_bounce(rs1_data, rs2_data);
+      case RtuType::SET_PAYLOAD_ADDR: {        
+        rt_unit_->set_payload_addr(rs1_data, rs2_data);
       } break;
       case RtuType::TRACE: {
         auto trace_data = std::make_shared<RtuTraceData>(num_threads);
@@ -1506,15 +1506,6 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
       case RtuType::GET_ATTR: {        
         rt_unit_->get_attr(rs1_data, rs2_data, rd_data);
         rd_write = true;
-      } break;
-      case RtuType::SET_COLOR_R: {        
-        rt_unit_->set_color(rs1_data, rs2_data, 0);
-      } break;
-      case RtuType::SET_COLOR_G: {        
-        rt_unit_->set_color(rs1_data, rs2_data, 1);
-      } break;
-      case RtuType::SET_COLOR_B: {        
-        rt_unit_->set_color(rs1_data, rs2_data, 2);
       } break;
       case RtuType::COMMIT: {    
         auto trace_data = std::make_shared<RtuTraceData>(num_threads);

@@ -163,7 +163,7 @@ public:
                 case VX_RT_RAY_RD_X: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].rd_x); break;
                 case VX_RT_RAY_RD_Y: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].rd_y); break;
                 case VX_RT_RAY_RD_Z: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].rd_z); break;
-                case VX_RT_RAY_BOUNCE: rd_data[tid].u32 = bounces_[rayID]; break;
+                case VX_RT_RAY_PAYLOAD_ADDR: rd_data[tid].u32 = payload_addrs_[rayID]; break;
 
                 case VX_RT_HIT_DIST: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hits_[rayID].dist); break;
                 case VX_RT_HIT_BX: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hits_[rayID].bx); break;
@@ -172,24 +172,9 @@ public:
                 case VX_RT_HIT_BLAS_IDX: rd_data[tid].u32 = hits_[rayID].blasIdx; break;
                 case VX_RT_HIT_TRI_IDX: rd_data[tid].u32 = hits_[rayID].triIdx; break;
 
-                case VX_RT_COLOR_R: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&colors_[rayID][0]); break;
-                case VX_RT_COLOR_G: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&colors_[rayID][1]); break;
-                case VX_RT_COLOR_B: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&colors_[rayID][2]); break;
-
                 default: rd_data[tid].u32 = 0; break;
             }
         } 
-    }
-
-    void set_color(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, uint32_t ch){
-        assert(ch == 0 || ch == 1 || ch ==2);
-        for (uint32_t tid = 0; tid < num_lanes_; tid++) {
-            uint32_t rayID = rs1_data[tid].u32;
-            uint32_t rs2 = rs2_data[tid].u32;
-
-            float val = *reinterpret_cast<float*>(&rs2);
-            colors_[rayID][ch] = val;
-        }
     }
 
     void commit(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, RtuTraceData* trace_data){
@@ -206,18 +191,18 @@ public:
                     traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                     break;
                 case VX_RT_COMMIT_TERM: 
-                    ray_list_.free(rayID);
+                    //ray_list_.free(rayID);
                     break;
                 default: break;
             }
         }
     }
 
-    void set_ray_bounce(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data){
+    void set_payload_addr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data){
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             uint32_t rayID = rs1_data[tid].u32;
-            uint32_t bounce = rs2_data[tid].u32;
-            bounces_[rayID] = bounce;
+            uint32_t payload_addr = rs2_data[tid].u32;
+            payload_addrs_[rayID] = payload_addr;
         }
     }
 
@@ -238,10 +223,8 @@ private:
     std::unordered_map<uint32_t, Hit> hits_;
     std::unordered_map<uint32_t, TraversalTrail> traversal_trails_;
     std::unordered_map<uint32_t, TraversalStack> traversal_stacks_;
-    
-    std::unordered_map<uint32_t, std::array<float, 3>> colors_;
 
-    std::unordered_map<uint32_t, uint32_t> bounces_;
+    std::unordered_map<uint32_t, uint32_t> payload_addrs_;
 
     std::vector<ShaderQueue> shader_queues;
 };
@@ -287,8 +270,8 @@ void RTUnit::set_ray_properties(const std::vector<reg_data_t>& rs1_data, const s
     impl_->set_ray_properties(rs1_data, rs2_data, rs3_data, axis);
 }
 
-void RTUnit::set_ray_bounce(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data){
-    impl_->set_ray_bounce(rs1_data, rs2_data);
+void RTUnit::set_payload_addr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data){
+    impl_->set_payload_addr(rs1_data, rs2_data);
 }
 
 void RTUnit::traverse(const std::vector<reg_data_t>& rs1_data, RtuTraceData* trace_data){
@@ -301,10 +284,6 @@ void RTUnit::get_work(std::vector<reg_data_t>& rd_data){
 
 void RTUnit::get_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, std::vector<reg_data_t>& rd_data){
     impl_->get_attr(rs1_data, rs2_data, rd_data);
-}
-
-void RTUnit::set_color(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, uint32_t ch){
-    impl_->set_color(rs1_data, rs2_data, ch);
 }
 
 void RTUnit::commit(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, RtuTraceData* trace_data){

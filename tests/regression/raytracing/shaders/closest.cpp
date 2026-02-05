@@ -1,17 +1,14 @@
 #include "shader.h"
-#include "rtx_shading.h"
+#include "../rtx_shading.h"
 #include <vx_spawn.h>
 #include <vx_print.h>
 #include <vx_raytrace.h>
 
-void miss_shader(uint32_t rayID, kernel_arg_t *arg){
-  if(rayID == 0) return;
-  float3_t color = arg->background_color;
-  vortex::rt::setColor(rayID, color.x, color.y, color.z);
-  vortex::rt::commit(rayID, VX_RT_COMMIT_TERM);
-}
+extern "C" {
 
-void closet_hit_shader(uint32_t rayID, kernel_arg_t *arg){
+typedef void (*shader_t)(uint32_t rayID, kernel_arg_t *arg);
+
+void _start(uint32_t rayID, kernel_arg_t *arg){
   if(rayID == 0) return;
   auto blas_ptr = reinterpret_cast<const blas_node_t *>(arg->blas_addr);
   auto triEx_ptr = reinterpret_cast<const tri_ex_t *>(arg->triEx_addr);
@@ -89,8 +86,9 @@ void closet_hit_shader(uint32_t rayID, kernel_arg_t *arg){
   throughput *= reflectivity;
 
   // bounce if reflective
-  uint32_t bounce = vortex::rt::getAttr(rayID, VX_RT_RAY_BOUNCE);
-  if (reflectivity > 0.0f && bounce + 1 < arg->max_depth) {
+  uint32_t payload_addr = vortex::rt::getAttr(rayID, VX_RT_RAY_PAYLOAD_ADDR);
+  ray_payload_t *payload = reinterpret_cast<ray_payload_t*>(payload_addr);
+  if (reflectivity > 0.0f && payload->bounce + 1 < arg->max_depth) {
     float3_t R = normalize(ray.dir - 2.0f * N * dot(N, ray.dir));
 
     ray_t sec_ray;
@@ -98,7 +96,9 @@ void closet_hit_shader(uint32_t rayID, kernel_arg_t *arg){
     sec_ray.dir = R;
 
     uint32_t secRayID;
-    vortex::rt::traceRay(sec_ray.orig.x, sec_ray.orig.y, sec_ray.orig.z, sec_ray.dir.x, sec_ray.dir.y, sec_ray.dir.z, bounce+1, secRayID);
+    ray_payload_t secPayload;
+    secPayload.bounce = payload->bounce + 1;
+    vortex::rt::traceRay(sec_ray.orig.x, sec_ray.orig.y, sec_ray.orig.z, sec_ray.dir.x, sec_ray.dir.y, sec_ray.dir.z, (uint32_t)(&secPayload), secRayID);
 
     uint32_t ret;
     while((ret = vortex::rt::getWork()) != 0){
@@ -109,52 +109,14 @@ void closet_hit_shader(uint32_t rayID, kernel_arg_t *arg){
       shader(id, arg);
     }
 
-    uint32_t red = vortex::rt::getAttr(secRayID, VX_RT_COLOR_R);
-    uint32_t green = vortex::rt::getAttr(secRayID, VX_RT_COLOR_G);
-    uint32_t blue = vortex::rt::getAttr(secRayID, VX_RT_COLOR_B);
-    radiance.x += *reinterpret_cast<float*>(&red) * throughput;
-    radiance.y += *reinterpret_cast<float*>(&green) * throughput;
-    radiance.z += *reinterpret_cast<float*>(&blue) * throughput;
+    radiance += secPayload.color * throughput;
   }else{
     // environment contribution for remaining throughput
-    radiance += throughput * arg->background_color;
+    radiance += arg->background_color * throughput;
   }
 
-  vortex::rt::setColor(rayID, radiance.x, radiance.y, radiance.z);
+  payload->color = radiance;
   vortex::rt::commit(rayID, VX_RT_COMMIT_TERM);
 }
 
-void intersection_shader(uint32_t rayID, kernel_arg_t *arg){
-  if(rayID == 0) return;
-}
-
-void any_hit_shader(uint32_t rayID, kernel_arg_t *arg){
-  if(rayID == 0) return;
-  auto triEx_ptr = reinterpret_cast<const tri_ex_t *>(arg->triEx_addr);
-  auto tex_ptr = reinterpret_cast<const uint8_t *>(arg->tex_addr);
-
-  uint32_t bx = vortex::rt::getAttr(rayID, VX_RT_HIT_BX);
-  uint32_t by = vortex::rt::getAttr(rayID, VX_RT_HIT_BY);
-  uint32_t bz = vortex::rt::getAttr(rayID, VX_RT_HIT_BZ);
-  uint32_t blas_idx = vortex::rt::getAttr(rayID, VX_RT_HIT_BLAS_IDX);
-  uint32_t tri_idx = vortex::rt::getAttr(rayID, VX_RT_HIT_TRI_IDX);
-
-  float3_t bcoords;
-  bcoords.x = *reinterpret_cast<float*>(&bx);
-  bcoords.y = *reinterpret_cast<float*>(&by);
-  bcoords.z = *reinterpret_cast<float*>(&bz);
-
-  const tri_ex_t &triEx = triEx_ptr[tri_idx];
-  // 1. Get the UV coordinates of the current hit point
-  float2_t uv = triEx.uv1 * bcoords.x + triEx.uv2 * bcoords.y + triEx.uv0 * bcoords.z;
-
-  // 2. Sample the alpha texture (0.0 = transparent, 1.0 = opaque)
-  float alpha = 1.0f;
-
-  float alpha_threshold = 0.5f;
-  if (alpha < alpha_threshold) {
-      vortex::rt::commit(rayID, VX_RT_COMMIT_CONT);
-  }
-  
-  vortex::rt::commit(rayID, VX_RT_COMMIT_ACCEPT);
 }

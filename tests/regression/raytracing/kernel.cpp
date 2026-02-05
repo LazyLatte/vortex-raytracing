@@ -2,7 +2,7 @@
 #include <vx_spawn.h>
 #include <vx_print.h>
 #include <vx_raytrace.h>
-#include "shader.h"
+#include "shaders/shader.h"
 #include <unordered_map>
 #define BLOCK_SIZE 8
 
@@ -26,8 +26,8 @@ ray_t GenerateRay(uint32_t x, uint32_t y, const kernel_arg_t *__UNIFORM__ arg) {
 void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
   auto out_ptr = reinterpret_cast<uint32_t *>(arg->dst_addr);
   auto sbt = reinterpret_cast<uint64_t *>(arg->sbt_addr);
-  
-  //vx_printf("*** tile: %p\n", ms);
+
+  //vx_printf("*** tile: %p\n", miss);
   for (uint32_t ty = 0; ty < BLOCK_SIZE; ++ty) {
     for (uint32_t tx = 0; tx < BLOCK_SIZE; ++tx) {
       uint32_t x = blockIdx.x * BLOCK_SIZE + tx;
@@ -40,7 +40,8 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
         auto ray = GenerateRay(x, y, arg);
 
         uint32_t rayID;
-        vortex::rt::traceRay(ray.orig.x, ray.orig.y, ray.orig.z, ray.dir.x, ray.dir.y, ray.dir.z, 0, rayID);
+        ray_payload_t payload;
+        vortex::rt::traceRay(ray.orig.x, ray.orig.y, ray.orig.z, ray.dir.x, ray.dir.y, ray.dir.z, (uint32_t)(&payload), rayID);
 
         uint32_t ret;
         while((ret = vortex::rt::getWork()) != 0){
@@ -51,12 +52,7 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
           shader(id, arg);
         }
 
-        uint32_t red = vortex::rt::getAttr(rayID, VX_RT_COLOR_R);
-        uint32_t green = vortex::rt::getAttr(rayID, VX_RT_COLOR_G);
-        uint32_t blue = vortex::rt::getAttr(rayID, VX_RT_COLOR_B);
-        color.x = *reinterpret_cast<float*>(&red);
-        color.y = *reinterpret_cast<float*>(&green);
-        color.z = *reinterpret_cast<float*>(&blue);
+        color += payload.color;
       }
 
       uint32_t globalIdx = x + y * arg->dst_width;
@@ -68,12 +64,6 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
 int main() {
   auto arg = reinterpret_cast<kernel_arg_t *>(csr_read(VX_CSR_MSCRATCH));
   uint32_t grid_dim[2] = {(arg->dst_width + BLOCK_SIZE - 1) / BLOCK_SIZE, (arg->dst_height + BLOCK_SIZE - 1) / BLOCK_SIZE};
-
-  uint64_t *sbt = reinterpret_cast<uint64_t *>(arg->sbt_addr);
-  sbt[0] = (uint64_t)miss_shader;
-  sbt[1] = (uint64_t)closet_hit_shader;
-  sbt[2] = (uint64_t)intersection_shader;
-  sbt[3] = (uint64_t)any_hit_shader;
 
   return vx_spawn_threads(2, grid_dim, nullptr, (vx_kernel_func_cb)kernel_body, arg);
 }

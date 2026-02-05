@@ -2,11 +2,9 @@
 #include "rt_op_unit.h"
 #include "rt_unit.h"
 
-#define BVH_WIDTH 4
-
-#define RAY_TRANSFORM_LATENCY 6
-#define RAY_BOX_INTERSECTION_LATENCY 24
-#define RAY_TRI_INTERSECTION_LATENCY 16
+// #define RAY_TRANSFORM_LATENCY 6
+// #define RAY_BOX_INTERSECTION_LATENCY 24
+// #define RAY_TRI_INTERSECTION_LATENCY 16
 
 using namespace vortex;
 
@@ -55,7 +53,7 @@ bool BVHTraverser::traverse(
         if(!isLeaf(&node)){
             std::vector<ChildIntersection> intersections;
 
-            for(int i=0; i<BVH_WIDTH; i++){
+            for(int i=0; i<RT_BVH_WIDTH; i++){
                 if(node.children[i].meta == 0) continue;
                 float min_x = node.px + std::ldexp(float(node.children[i].qaabb[0]), node.ex);
                 float min_y = node.py + std::ldexp(float(node.children[i].qaabb[1]), node.ey);
@@ -77,7 +75,7 @@ bool BVHTraverser::traverse(
             });
 
             uint32_t k = trail[level];
-            uint32_t dropCount = (k == BVH_WIDTH) ? intersections.size() - 1 : k;
+            uint32_t dropCount = (k == RT_BVH_WIDTH) ? intersections.size() - 1 : k;
             for(int i=0; i<dropCount; i++){
                 if(intersections.size() > 0){
                     intersections.pop_back();
@@ -94,7 +92,7 @@ bool BVHTraverser::traverse(
                 node_ptr = calcNodePtr(base_ptr, nodeIdx);
                 
                 if(intersections.size() == 0){
-                    trail[level] = BVH_WIDTH;
+                    trail[level] = RT_BVH_WIDTH;
                 }else{
                     for(auto iter = intersections.begin(); iter != intersections.end(); iter++){
                         nodeIdx = node.leftFirst + (*iter).childIdx;
@@ -168,7 +166,7 @@ bool BVHTraverser::traverse(
 
 int32_t BVHTraverser::findNextParentLevel(const uint32_t level, const TraversalTrail& trail){
     for(int i=level-1; i>=0; i--){
-        if(trail[i] != BVH_WIDTH){
+        if(trail[i] != RT_BVH_WIDTH){
             return i;
         }
     }
@@ -203,7 +201,7 @@ bool BVHTraverser::pop(
         TraversalStack::Entry e = stack.pop();
         node_ptr = e.node_ptr;
         if(e.last){
-            trail[parentLevel] = BVH_WIDTH;
+            trail[parentLevel] = RT_BVH_WIDTH;
         }
 
         level = parentLevel + 1;

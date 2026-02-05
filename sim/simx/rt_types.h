@@ -9,7 +9,6 @@
 
 #define LARGE_FLOAT 1e30f
 #define MAX_TRAIL_LEVEL 32
-#define RT_STACK_SIZE 5
 
 namespace vortex {
     struct BVHChildData {

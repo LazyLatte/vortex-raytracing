@@ -239,11 +239,7 @@
 `define VX_RT_HIT_BLAS_IDX              12'hFDA
 `define VX_RT_HIT_TRI_IDX               12'hFDB
 
-`define VX_RT_COLOR_R                   12'hFDC
-`define VX_RT_COLOR_G                   12'hFDD
-`define VX_RT_COLOR_B                   12'hFDE
-
-`define VX_RT_RAY_BOUNCE                12'hFDF
+`define VX_RT_RAY_PAYLOAD_ADDR          12'hFDC
 
 `define VX_RT_COMMIT_CONT               12'hFF0
 `define VX_RT_COMMIT_ACCEPT             12'hFF1

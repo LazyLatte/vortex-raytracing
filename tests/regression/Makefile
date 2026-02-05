@@ -84,3 +84,4 @@ clean:
 	$(MAKE) -C sgemm2 clean
 	$(MAKE) -C madmax clean
 	$(MAKE) -C stencil3d clean
+	$(MAKE) -C raytracing clean

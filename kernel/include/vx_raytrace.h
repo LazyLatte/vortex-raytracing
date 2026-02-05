@@ -25,7 +25,7 @@ static __attribute__((always_inline)) void traceRay(
     float rd_x, 
     float rd_y, 
     float rd_z, 
-    uint32_t bounce,
+    uint32_t payload_addr,
     uint32_t& rayID
 ) {
     
@@ -40,9 +40,11 @@ static __attribute__((always_inline)) void traceRay(
     register uint32_t ret __asm__("x6");
 
     __asm__ volatile (
-        ".insn r %[insn], 0, 3, %[rd_t], %[rs_ray], %[rs_bounce]"
+        ".insn r %[insn], 0, 3, %[rd_t], %[rs_ray], %[rs_payload_addr]"
         : [rd_t] "=r"(ret)
-        : [insn] "i"(RISCV_CUSTOM0), [rs_ray] "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), [rs_bounce] "r"(bounce)
+        : [insn] "i"(RISCV_CUSTOM0)
+        , [rs_ray] "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz)
+        , [rs_payload_addr] "r"(payload_addr)
     );
 
     rayID = ret;
@@ -60,20 +62,8 @@ inline int getAttr(uint32_t rayID, uint32_t idx) {
     return ret;
 }
 
-static __attribute__((always_inline)) void setColor(uint32_t rayID, float red, float green, float blue) {
-    
-    register float r __asm__("f7") = red;
-    register float g __asm__("f8") = green;
-    register float b __asm__("f9") = blue;
-
-    __asm__ volatile (
-        ".insn r %[insn], 3, 3, x0, %[id], %[rs_base]"
-        :: [insn] "i"(RISCV_CUSTOM0), [id] "r"(rayID), [rs_base] "f"(r), "f"(g), "f"(b)
-    );
-}
-
 inline void commit(uint32_t rayID, uint32_t actionID) {
-    __asm__ volatile (".insn r %0, 4, 3, x0, %1, %2" :: "i"(RISCV_CUSTOM0), "r"(rayID), "r"(actionID));
+    __asm__ volatile (".insn r %0, 3, 3, x0, %1, %2" :: "i"(RISCV_CUSTOM0), "r"(rayID), "r"(actionID));
 }
 
 } 

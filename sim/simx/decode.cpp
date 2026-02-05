@@ -481,13 +481,10 @@ static op_string_t op_string(const Instr &instr) {
         case RtuType::LOAD_X: return {"LOAD_X", ""};
         case RtuType::LOAD_Y: return {"LOAD_Y", ""};
         case RtuType::LOAD_Z: return {"LOAD_Z", ""};
-        case RtuType::SET_BOUNCE: return {"SET_BOUNCE", ""};
+        case RtuType::SET_PAYLOAD_ADDR: return {"SET_PAYLOAD_ADDR", ""};
         case RtuType::TRACE: return {"Trace", ""};
         case RtuType::GET_WORK: return {"GET_WORK", ""};
         case RtuType::GET_ATTR: return {"GET_ATTR", ""};
-        case RtuType::SET_COLOR_R: return {"SET_COLOR_R", ""};
-        case RtuType::SET_COLOR_G: return {"SET_COLOR_G", ""};
-        case RtuType::SET_COLOR_B: return {"SET_COLOR_B", ""};
         case RtuType::COMMIT: return {"COMMIT", ""};
         default: std::abort();
       }
@@ -1175,12 +1172,12 @@ void Emulator::decode(uint32_t code, uint32_t wid, uint64_t uuid) {
         i_ray_z->setSrcReg(2, base + 5, RegType::Float);
         ibuffer.push_back(i_ray_z);
 
-        auto i_ray_bounce = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
-        i_ray_bounce->setArgs(IntrRtuArgs{});
-        i_ray_bounce->setOpType(RtuType::SET_BOUNCE);
-        i_ray_bounce->setSrcReg(0, dest, RegType::Integer);
-        i_ray_bounce->setSrcReg(1, rs2, RegType::Integer);
-        ibuffer.push_back(i_ray_bounce);
+        auto i_payload = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        i_payload->setArgs(IntrRtuArgs{});
+        i_payload->setOpType(RtuType::SET_PAYLOAD_ADDR);
+        i_payload->setSrcReg(0, dest, RegType::Integer);
+        i_payload->setSrcReg(1, rs2, RegType::Integer);
+        ibuffer.push_back(i_payload);
 
         auto i_trace = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
         i_trace->setArgs(IntrRtuArgs{});
@@ -1204,29 +1201,7 @@ void Emulator::decode(uint32_t code, uint32_t wid, uint64_t uuid) {
         i_get_attr->setDestReg(rd, RegType::Integer);
         ibuffer.push_back(i_get_attr);
       } break;
-      case 3: { // Set color
-        auto i_set_r = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
-        i_set_r->setArgs(IntrRtuArgs{});
-        i_set_r->setOpType(RtuType::SET_COLOR_R);
-        i_set_r->setSrcReg(0, rs1, RegType::Integer);
-        i_set_r->setSrcReg(1, rs2 + 0, RegType::Float);
-        ibuffer.push_back(i_set_r);
-
-        auto i_set_g = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
-        i_set_g->setArgs(IntrRtuArgs{});
-        i_set_g->setOpType(RtuType::SET_COLOR_G);
-        i_set_g->setSrcReg(0, rs1, RegType::Integer);
-        i_set_g->setSrcReg(1, rs2 + 1, RegType::Float);
-        ibuffer.push_back(i_set_g);
-
-        auto i_set_b = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
-        i_set_b->setArgs(IntrRtuArgs{});
-        i_set_b->setOpType(RtuType::SET_COLOR_B);
-        i_set_b->setSrcReg(0, rs1, RegType::Integer);
-        i_set_b->setSrcReg(1, rs2 + 2, RegType::Float);
-        ibuffer.push_back(i_set_b);
-      } break;
-      case 4: { // Commit
+      case 3: { // Commit
         auto i_commit = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
         i_commit->setArgs(IntrRtuArgs{});
         i_commit->setOpType(RtuType::COMMIT);
