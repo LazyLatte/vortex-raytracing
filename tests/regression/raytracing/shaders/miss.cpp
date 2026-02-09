@@ -10,6 +10,7 @@ extern "C" {
     ray_payload_t *payload = reinterpret_cast<ray_payload_t*>(payload_addr);
 
     payload->color = arg->background_color;
+    payload->done = true;
     vortex::rt::commit(rayID, VX_RT_COMMIT_TERM);
   }
 }

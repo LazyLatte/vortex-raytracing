@@ -24,39 +24,77 @@ ray_t GenerateRay(uint32_t x, uint32_t y, const kernel_arg_t *__UNIFORM__ arg) {
 }
 
 void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
+  //vx_printf("*** tile: %d\n", *producers_finished);
   auto out_ptr = reinterpret_cast<uint32_t *>(arg->dst_addr);
   auto sbt = reinterpret_cast<uint64_t *>(arg->sbt_addr);
 
-  //vx_printf("*** tile: %p\n", miss);
+  uint32_t active_rays = 0;
+  ray_payload_t payloads[BLOCK_SIZE][BLOCK_SIZE];
+
+  // Pushing rays
   for (uint32_t ty = 0; ty < BLOCK_SIZE; ++ty) {
     for (uint32_t tx = 0; tx < BLOCK_SIZE; ++tx) {
       uint32_t x = blockIdx.x * BLOCK_SIZE + tx;
       uint32_t y = blockIdx.y * BLOCK_SIZE + ty;
-      if (x >= arg->dst_width || y >= arg->dst_height)
-        continue;
+      if (x < arg->dst_width && y < arg->dst_height){
+        //float3_t color = float3_t(0, 0, 0);
+        active_rays++;
+        payloads[ty][tx].done = false;
+        
+        //for (uint32_t s = 0; s < arg->samples_per_pixel; ++s) {
+          auto ray = GenerateRay(x, y, arg);
 
-      float3_t color = float3_t(0, 0, 0);
-      for (uint32_t s = 0; s < arg->samples_per_pixel; ++s) {
-        auto ray = GenerateRay(x, y, arg);
-
-        uint32_t rayID;
-        ray_payload_t payload;
-        vortex::rt::traceRay(ray.orig.x, ray.orig.y, ray.orig.z, ray.dir.x, ray.dir.y, ray.dir.z, (uint32_t)(&payload), rayID);
-
-        uint32_t ret;
-        while((ret = vortex::rt::getWork()) != 0){
-          uint32_t type = __builtin_ctz(ret >> 28);
-          uint32_t id = ret & 0x0FFFFFFF;
-
-          auto shader = (shader_t)(sbt[type]);
-          shader(id, arg);
-        }
-
-        color += payload.color;
+          uint32_t rayID;
+          vortex::rt::traceRay(
+            ray.orig.x, 
+            ray.orig.y, 
+            ray.orig.z, 
+            ray.dir.x, 
+            ray.dir.y, 
+            ray.dir.z, 
+            (uint32_t)(&payloads[ty][tx]),
+            rayID
+          );
+          //color += payload.color;
+        //}
       }
+    }
+  }
 
-      uint32_t globalIdx = x + y * arg->dst_width;
-      out_ptr[globalIdx] = RGB32FtoRGB8(color);
+  // Hybrid: Consumer + Poll
+  uint32_t finished_count = 0;
+  while (finished_count < active_rays) {
+
+    uint32_t ret = vortex::rt::getWork();
+
+    if (ret != 0) {
+      uint32_t type = __builtin_ctz(ret >> 28);
+      uint32_t id = ret & 0x0FFFFFFF;
+      auto shader = (shader_t)(sbt[type]);
+      shader(id, arg);
+    }else{
+      finished_count = 0;
+      for (uint32_t ty = 0; ty < BLOCK_SIZE; ++ty) {
+        for (uint32_t tx = 0; tx < BLOCK_SIZE; ++tx) {
+          uint32_t x = blockIdx.x * BLOCK_SIZE + tx;
+          uint32_t y = blockIdx.y * BLOCK_SIZE + ty;
+          if (x < arg->dst_width && y < arg->dst_height && payloads[ty][tx].done) {
+            finished_count++;
+          }
+        }
+      }
+    }
+
+  }
+  
+  // Writing back colors
+  for (uint32_t ty = 0; ty < BLOCK_SIZE; ++ty) {
+    for (uint32_t tx = 0; tx < BLOCK_SIZE; ++tx) {
+      uint32_t x = blockIdx.x * BLOCK_SIZE + tx;
+      uint32_t y = blockIdx.y * BLOCK_SIZE + ty;
+      if (x < arg->dst_width && y < arg->dst_height) {
+        out_ptr[x + y * arg->dst_width] = RGB32FtoRGB8(payloads[ty][tx].color);
+      }
     }
   }
 }

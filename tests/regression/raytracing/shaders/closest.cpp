@@ -116,6 +116,7 @@ void _start(uint32_t rayID, kernel_arg_t *arg){
   }
 
   payload->color = radiance;
+  payload->done = true;
   vortex::rt::commit(rayID, VX_RT_COMMIT_TERM);
 }
 
