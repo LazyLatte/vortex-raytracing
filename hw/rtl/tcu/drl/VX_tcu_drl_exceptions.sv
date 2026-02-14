@@ -43,13 +43,11 @@ module VX_tcu_drl_exceptions import VX_tcu_pkg::*; #(
     // ----------------------------------------------------------------------
     for (genvar i = 0; i < TCK; ++i) begin : g_prep_tf32
         if ((i % 2) == 0) begin : g_even_lane
-            fedp_class_t ca = cls_tf32[0][i/2];
-            fedp_class_t cb = cls_tf32[1][i/2];
-            `UNUSED_VAR ({ca, cb})
-            assign nan_in_tf32[i] = ca.is_nan | cb.is_nan;
-            assign inf_z_tf32[i]  = (ca.is_inf & cb.is_zero) | (ca.is_zero & cb.is_inf);
-            assign inf_op_tf32[i] = ca.is_inf | cb.is_inf;
-            assign sign_tf32[i]   = ca.sign ^ cb.sign;
+            assign nan_in_tf32[i] = cls_tf32[0][i/2].is_nan | cls_tf32[1][i/2].is_nan;
+            assign inf_z_tf32[i]  = (cls_tf32[0][i/2].is_inf & cls_tf32[1][i/2].is_zero)
+                                  | (cls_tf32[0][i/2].is_zero & cls_tf32[1][i/2].is_inf);
+            assign inf_op_tf32[i] = cls_tf32[0][i/2].is_inf | cls_tf32[1][i/2].is_inf;
+            assign sign_tf32[i]   = cls_tf32[0][i/2].sign ^ cls_tf32[1][i/2].sign;
         end else begin : g_odd_lane
             assign nan_in_tf32[i] = 1'b0;
             assign inf_z_tf32[i]  = 1'b0;
@@ -63,27 +61,24 @@ module VX_tcu_drl_exceptions import VX_tcu_pkg::*; #(
     // 1b. FP16 Preparation
     // ----------------------------------------------------------------------
     for (genvar i = 0; i < TCK; ++i) begin : g_prep_fp16
-        fedp_class_t ca = cls_fp16[0][i];
-        fedp_class_t cb = cls_fp16[1][i];
-        `UNUSED_VAR ({ca, cb})
-        assign nan_in_fp16[i] = ca.is_nan | cb.is_nan;
-        assign inf_z_fp16[i]  = (ca.is_inf & cb.is_zero) | (ca.is_zero & cb.is_inf);
-        assign inf_op_fp16[i] = ca.is_inf | cb.is_inf;
-        assign sign_fp16[i]   = ca.sign ^ cb.sign;
+        assign nan_in_fp16[i] = cls_fp16[0][i].is_nan | cls_fp16[1][i].is_nan;
+        assign inf_z_fp16[i]  = (cls_fp16[0][i].is_inf & cls_fp16[1][i].is_zero)
+                              | (cls_fp16[0][i].is_zero & cls_fp16[1][i].is_inf);
+        assign inf_op_fp16[i] = cls_fp16[0][i].is_inf | cls_fp16[1][i].is_inf;
+        assign sign_fp16[i]   = cls_fp16[0][i].sign ^ cls_fp16[1][i].sign;
     end
 
     // ----------------------------------------------------------------------
     // 1c. BF16 Preparation
     // ----------------------------------------------------------------------
     for (genvar i = 0; i < TCK; ++i) begin : g_prep_bf16
-        fedp_class_t ca = cls_bf16[0][i];
-        fedp_class_t cb = cls_bf16[1][i];
-        `UNUSED_VAR ({ca, cb})
-        assign nan_in_bf16[i] = ca.is_nan | cb.is_nan;
-        assign inf_z_bf16[i]  = (ca.is_inf & cb.is_zero) | (ca.is_zero & cb.is_inf);
-        assign inf_op_bf16[i] = ca.is_inf | cb.is_inf;
-        assign sign_bf16[i]   = ca.sign ^ cb.sign;
+        assign nan_in_bf16[i] = cls_bf16[0][i].is_nan | cls_bf16[1][i].is_nan;
+        assign inf_z_bf16[i]  = (cls_bf16[0][i].is_inf & cls_bf16[1][i].is_zero)
+                              | (cls_bf16[0][i].is_zero & cls_bf16[1][i].is_inf);
+        assign inf_op_bf16[i] = cls_bf16[0][i].is_inf | cls_bf16[1][i].is_inf;
+        assign sign_bf16[i]   = cls_bf16[0][i].sign ^ cls_bf16[1][i].sign;
     end
+    `UNUSED_VAR ({nan_in_bf16, inf_z_bf16, inf_op_bf16, sign_bf16})
 
     // ----------------------------------------------------------------------
     // 1d. FP8 (E4M3) Preparation
@@ -91,13 +86,11 @@ module VX_tcu_drl_exceptions import VX_tcu_pkg::*; #(
     for (genvar i = 0; i < TCK; ++i) begin : g_prep_fp8
         for (genvar j = 0; j < 2; ++j) begin : g_sub
             localparam idx = i * 2 + j;
-            fedp_class_t ca = cls_fp8[0][idx];
-            fedp_class_t cb = cls_fp8[1][idx];
-            `UNUSED_VAR ({ca, cb})
-            assign nan_in_fp8[i][j] = ca.is_nan | cb.is_nan;
-            assign inf_z_fp8[i][j]  = (ca.is_inf & cb.is_zero) | (ca.is_zero & cb.is_inf);
-            assign inf_op_fp8[i][j] = ca.is_inf | cb.is_inf;
-            assign sign_fp8[i][j]   = ca.sign ^ cb.sign;
+            assign nan_in_fp8[i][j] = cls_fp8[0][idx].is_nan | cls_fp8[1][idx].is_nan;
+            assign inf_z_fp8[i][j]  = (cls_fp8[0][idx].is_inf & cls_fp8[1][idx].is_zero)
+                                    | (cls_fp8[0][idx].is_zero & cls_fp8[1][idx].is_inf);
+            assign inf_op_fp8[i][j] = cls_fp8[0][idx].is_inf | cls_fp8[1][idx].is_inf;
+            assign sign_fp8[i][j]   = cls_fp8[0][idx].sign ^ cls_fp8[1][idx].sign;
         end
     end
 
@@ -107,13 +100,11 @@ module VX_tcu_drl_exceptions import VX_tcu_pkg::*; #(
     for (genvar i = 0; i < TCK; ++i) begin : g_prep_bf8
         for (genvar j = 0; j < 2; ++j) begin : g_sub
             localparam idx = i * 2 + j;
-            fedp_class_t ca = cls_bf8[0][idx];
-            fedp_class_t cb = cls_bf8[1][idx];
-            `UNUSED_VAR ({ca, cb})
-            assign nan_in_bf8[i][j] = ca.is_nan | cb.is_nan;
-            assign inf_z_bf8[i][j]  = (ca.is_inf & cb.is_zero) | (ca.is_zero & cb.is_inf);
-            assign inf_op_bf8[i][j] = ca.is_inf | cb.is_inf;
-            assign sign_bf8[i][j]   = ca.sign ^ cb.sign;
+            assign nan_in_bf8[i][j] = cls_bf8[0][idx].is_nan | cls_bf8[1][idx].is_nan;
+            assign inf_z_bf8[i][j]  = (cls_bf8[0][idx].is_inf & cls_bf8[1][idx].is_zero)
+                                    | (cls_bf8[0][idx].is_zero & cls_bf8[1][idx].is_inf);
+            assign inf_op_bf8[i][j] = cls_bf8[0][idx].is_inf | cls_bf8[1][idx].is_inf;
+            assign sign_bf8[i][j]   = cls_bf8[0][idx].sign ^ cls_bf8[1][idx].sign;
         end
     end
 
@@ -140,20 +131,21 @@ module VX_tcu_drl_exceptions import VX_tcu_pkg::*; #(
         end
 
         // NaN if either product has NaN input or inf*0
-        wire n_in_fp8_comb = |nan_in_fp8[i] | |inf_z_fp8[i];
-        wire n_in_bf8_comb = |nan_in_bf8[i] | |inf_z_bf8[i];
+        wire n_in_fp8_comb = (|nan_in_fp8[i]) | (|inf_z_fp8[i]);
+        wire n_in_bf8_comb = (|nan_in_bf8[i]) | (|inf_z_bf8[i]);
 
         // Check for +inf + -inf in the addition (generates NaN)
         wire fp8_add_nan = (fp8_pos_inf[0] & fp8_neg_inf[1]) | (fp8_neg_inf[0] & fp8_pos_inf[1]);
         wire bf8_add_nan = (bf8_pos_inf[0] & bf8_neg_inf[1]) | (bf8_neg_inf[0] & bf8_pos_inf[1]);
 
         // Combined infinity check (either product is inf and no add-nan)
-        wire i_op_fp8_comb = |fp8_valid_inf;
-        wire i_op_bf8_comb = |bf8_valid_inf;
+        wire i_op_fp8_comb = (|fp8_valid_inf);
+        wire i_op_bf8_comb = (|bf8_valid_inf);
 
         // Sign of combined result (dominant inf sign, prefer positive if same magnitude)
         wire sgn_fp8_comb = (|fp8_neg_inf) & ~(|fp8_pos_inf);
         wire sgn_bf8_comb = (|bf8_neg_inf) & ~(|bf8_pos_inf);
+        `UNUSED_VAR ({n_in_fp8_comb, n_in_bf8_comb, fp8_add_nan, bf8_add_nan, i_op_fp8_comb, i_op_bf8_comb, sgn_fp8_comb, sgn_bf8_comb})
 
         always_comb begin
             case (fmtf)
@@ -161,10 +153,18 @@ module VX_tcu_drl_exceptions import VX_tcu_pkg::*; #(
                     n_in = nan_in_fp16[i]; i_z = inf_z_fp16[i]; i_op = inf_op_fp16[i]; sgn = sign_fp16[i];
                     valid_lane = vld_mask[i * 4];
                 end
+            `ifdef TCU_BF16_ENABLE
                 TCU_BF16_ID: begin
                     n_in = nan_in_bf16[i]; i_z = inf_z_bf16[i]; i_op = inf_op_bf16[i]; sgn = sign_bf16[i];
                     valid_lane = vld_mask[i * 4];
                 end
+            `endif
+            `ifdef TCU_TF32_ENABLE
+                TCU_TF32_ID: begin
+                    n_in = nan_in_tf32[i]; i_z = inf_z_tf32[i]; i_op = inf_op_tf32[i]; sgn = sign_tf32[i];
+                    valid_lane = ((i % 2) == 0) ? vld_mask[i * 4] : 1'b0;
+                end
+            `endif
             `ifdef TCU_FP8_ENABLE
                 TCU_FP8_ID: begin
                     n_in = n_in_fp8_comb | fp8_add_nan; i_z = 1'b0; i_op = i_op_fp8_comb; sgn = sgn_fp8_comb;
@@ -175,18 +175,11 @@ module VX_tcu_drl_exceptions import VX_tcu_pkg::*; #(
                     valid_lane = vld_mask[i * 2];
                 end
             `endif
-            `ifdef TCU_TF32_ENABLE
-                TCU_TF32_ID: begin
-                    n_in = nan_in_tf32[i]; i_z = inf_z_tf32[i]; i_op = inf_op_tf32[i]; sgn = sign_tf32[i];
-                    valid_lane = ((i % 2) == 0) ? vld_mask[i * 4] : 1'b0;
-                end
-            `endif
                 default: begin
                     n_in=0; i_z=0; i_op=0; sgn=0; valid_lane=0;
                 end
             endcase
         end
-        `UNUSED_VAR ({n_in_fp8_comb, n_in_bf8_comb, fp8_add_nan, bf8_add_nan, i_op_fp8_comb, i_op_bf8_comb, sgn_fp8_comb, sgn_bf8_comb})
         assign prod_nan[i]  = (n_in | i_z) & valid_lane;
         assign prod_inf[i]  = (i_op & ~i_z) & valid_lane;
         assign prod_sign[i] = sgn;
