@@ -13,7 +13,7 @@
 
 `include "VX_define.vh"
 
-module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
+module VX_tcu_tfr_exp_bias import VX_tcu_pkg::*;  #(
     parameter N     = 2,
     parameter TCK   = 2 * N,
     parameter W     = 25,
@@ -27,6 +27,8 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
     input wire [N-1:0][31:0]        a_row,
     input wire [N-1:0][31:0]        b_col,
     input wire [31:0]               c_val,
+    input wire [7:0]                sf_a,
+    input wire [7:0]                sf_b,
 
     // Classification Inputs
     input fedp_class_t [N-1:0]      cls_tf32 [2],
@@ -205,22 +207,23 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
     end
 
     // f8 Mux Selection
-    wire [TCK-1:0][EXP_W-1:0] sum_f8_0, sum_f8_1;
+    wire [TCK-1:0][EXP_W-1:0] sum_f8_0, sum_f8_1, sum_f8, sum_f8_sf;
     wire [TCK-1:0]            diff_sign_f8;
-    logic [TCK-1:0][1:0]      is_zero_f8;
+    logic [TCK-1:0]           is_zero_f8_0, is_zero_f8_1, is_zero_f8;
     `UNUSED_VAR ({diff_sign_f8, is_zero_f8, sum_f8_0, sum_f8_1})
     for (genvar i = 0; i < TCK; ++i) begin : g_exp_f8
         logic [1:0][4:0] ea_sel, eb_sel;
         logic [7:0]      bias_sel;
-        logic [1:0]      is_zero;
         always_comb begin
             case (fmtf)
-                TCU_FP8_ID: begin
+                TCU_FP8_ID,
+                TCU_MXFP8_ID: begin
                     ea_sel[0] = 5'(ea_fp8[i][0]);
                     ea_sel[1] = 5'(ea_fp8[i][1]);
                     eb_sel[0] = 5'(eb_fp8[i][0]);
                     eb_sel[1] = 5'(eb_fp8[i][1]);
-                    is_zero   = z_fp8[i];
+                    is_zero_f8_0[i] = z_fp8[i][0];
+                    is_zero_f8_1[i] = z_fp8[i][1];
                     bias_sel  = BIAS_CONST_FP8;
                 end
                 TCU_BF8_ID: begin
@@ -228,14 +231,16 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
                     ea_sel[1] = 5'(ea_bf8[i][1]);
                     eb_sel[0] = 5'(eb_bf8[i][0]);
                     eb_sel[1] = 5'(eb_bf8[i][1]);
-                    is_zero   = z_bf8[i];
+                    is_zero_f8_0[i] = z_bf8[i][0];
+                    is_zero_f8_1[i] = z_bf8[i][1];
                     bias_sel  = BIAS_CONST_BF8;
                 end
                 default: begin
                     ea_sel    = 'x;
                     eb_sel    = 'x;
                     bias_sel  = 'x;
-                    is_zero   = 'x;
+                    is_zero_f8_0[i] = 'x;
+                    is_zero_f8_1[i] = 'x;
                 end
             endcase
         end
@@ -303,8 +308,16 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
         `UNUSED_VAR (diff_abs[5])
         assign exp_diff_f8[i]  = {diff_sign, diff_abs[4:0]};
         assign diff_sign_f8[i] = diff_sign;
-        assign is_zero_f8[i]   = is_zero;
+
+        assign sum_f8[i] = diff_sign_f8[i] ? sum_f8_0[i] : sum_f8_1[i];
+        assign is_zero_f8[i] = is_zero_f8_0[i] & is_zero_f8_1[i];
+
+        //MXFP8 calc
+        wire [7:0] sf_wo_bias = sf_a + sf_b - 8'd254;
+        assign sum_f8_sf[i] = sum_f8[i] + EXP_W'(sf_wo_bias);     
     end
+
+
 
     // Final Output Mux
     for (genvar i = 0; i < TCK; ++i) begin : g_exp_mux
@@ -322,9 +335,10 @@ module VX_tcu_drl_exp_bias import VX_tcu_pkg::*;  #(
                 end
             `ifdef TCU_FP8_ENABLE
                 TCU_FP8_ID, TCU_BF8_ID: begin
-                    prod_exp = diff_sign_f8[i] ?
-                        (is_zero_f8[i][0] ? EXP_NEG_INF : sum_f8_0[i]) :
-                        (is_zero_f8[i][1] ? EXP_NEG_INF : sum_f8_1[i]);
+                    prod_exp = is_zero_f8[i] ? EXP_NEG_INF : sum_f8[i];
+                end
+                TCU_MXFP8_ID: begin
+                    prod_exp = is_zero_f8[i] ? EXP_NEG_INF : sum_f8_sf[i];
                 end
             `endif
                 default: begin

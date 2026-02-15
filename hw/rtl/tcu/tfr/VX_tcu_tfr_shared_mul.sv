@@ -13,7 +13,7 @@
 
 `include "VX_define.vh"
 
-module VX_tcu_drl_shared_mul import VX_tcu_pkg::*; #(
+module VX_tcu_tfr_shared_mul import VX_tcu_pkg::*; #(
     parameter N   = 2,
     parameter TCK = 2 * N
 ) (
@@ -38,7 +38,7 @@ module VX_tcu_drl_shared_mul import VX_tcu_pkg::*; #(
     `UNUSED_VAR (vld_mask)
 
     wire fmt_is_signed_int = tcu_fmt_is_signed_int(fmt_s[2:0]);
-    wire tmt_is_bfloat = tcu_fmt_is_bfloat(fmt_s[2:0]);
+    wire fmt_is_bf8 = (fmt_s == TCU_BF8_ID);
 
     wire [TCK-1:0][10:0] man_a_tf32, man_b_tf32, man_a_fp16, man_b_fp16, man_a_bf16, man_b_bf16;
     wire [TCK-1:0]       sign_tf32, sign_fp16, sign_bf16;
@@ -143,9 +143,9 @@ module VX_tcu_drl_shared_mul import VX_tcu_pkg::*; #(
         wire [1:0]      sign_f8;
 
         for (genvar j = 0; j < 2; ++j) begin : g_f8
-            wire [3:0] ma_f8 = tmt_is_bfloat ? man_a_bf8[i][j] : man_a_fp8[i][j];
-            wire [3:0] mb_f8 = tmt_is_bfloat ? man_b_bf8[i][j] : man_b_fp8[i][j];
-            assign sign_f8[j] = tmt_is_bfloat ? sign_bf8[i][j] : sign_fp8[i][j];
+            wire [3:0] ma_f8 = fmt_is_bf8 ? man_a_bf8[i][j] : man_a_fp8[i][j];
+            wire [3:0] mb_f8 = fmt_is_bf8 ? man_b_bf8[i][j] : man_b_fp8[i][j];
+            assign sign_f8[j] = fmt_is_bf8 ? sign_bf8[i][j] : sign_fp8[i][j];
 
             VX_wallace_mul #(
                 .N (4),
@@ -158,8 +158,8 @@ module VX_tcu_drl_shared_mul import VX_tcu_pkg::*; #(
         end
 
         // Alignment & Adder for FP8/BF8
-        wire [7:0] y_f8_low  = tmt_is_bfloat ? {y_raw_f8[0][5:0], 2'd0} : y_raw_f8[0];
-        wire [7:0] y_f8_high = tmt_is_bfloat ? {y_raw_f8[1][5:0], 2'd0} : y_raw_f8[1];
+        wire [7:0] y_f8_low  = fmt_is_bf8 ? {y_raw_f8[0][5:0], 2'd0} : y_raw_f8[0];
+        wire [7:0] y_f8_high = fmt_is_bf8 ? {y_raw_f8[1][5:0], 2'd0} : y_raw_f8[1];
         wire [22:0] aligned_sig_low  = exp_diff_f8[i][5] ? {y_f8_low, 15'd0} : {y_f8_low, 15'd0} >> exp_diff_f8[i][4:0];
         wire [22:0] aligned_sig_high = exp_diff_f8[i][5] ? {y_f8_high, 15'd0} >> exp_diff_f8[i][4:0] : {y_f8_high, 15'd0};
         // -- Determine which operand is larger
@@ -241,6 +241,7 @@ module VX_tcu_drl_shared_mul import VX_tcu_pkg::*; #(
             `ifdef TCU_FP8_ENABLE
                 TCU_FP8_ID, TCU_BF8_ID:   y[i] = {sign_f8_add, y_f8_add};
             `endif
+                TCU_MXFP8_ID:             y[i] = {sign_f8_add, y_f8_add};//is the same as FP8
             `ifdef TCU_INT_ENABLE
                 TCU_I8_ID:                y[i] = 25'($signed(y_i8_add_res));
                 TCU_U8_ID:                y[i] = {8'd0, y_i8_add_res};

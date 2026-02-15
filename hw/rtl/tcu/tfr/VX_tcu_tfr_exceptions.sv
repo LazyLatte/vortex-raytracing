@@ -13,7 +13,7 @@
 
 `include "VX_define.vh"
 
-module VX_tcu_drl_exceptions import VX_tcu_pkg::*; #(
+module VX_tcu_tfr_exceptions import VX_tcu_pkg::*; #(
     parameter N   = 2,
     parameter TCK = 2 * N
 ) (
@@ -166,7 +166,8 @@ module VX_tcu_drl_exceptions import VX_tcu_pkg::*; #(
                 end
             `endif
             `ifdef TCU_FP8_ENABLE
-                TCU_FP8_ID: begin
+                TCU_FP8_ID,
+                TCU_MXFP8_ID: begin
                     n_in = n_in_fp8_comb | fp8_add_nan; i_z = 1'b0; i_op = i_op_fp8_comb; sgn = sgn_fp8_comb;
                     valid_lane = vld_mask[i * 2];
                 end

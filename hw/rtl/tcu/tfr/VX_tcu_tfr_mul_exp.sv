@@ -13,7 +13,7 @@
 
 `include "VX_define.vh"
 
-module VX_tcu_drl_mul_exp import VX_tcu_pkg::*;  #(
+module VX_tcu_tfr_mul_exp import VX_tcu_pkg::*;  #(
     parameter `STRING INSTANCE_ID = "",
     parameter N = 2,            // Number of 32-bit input registers
     parameter W = 25,           // Product width
@@ -29,6 +29,8 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*;  #(
     input wire [N-1:0][31:0] a_row,
     input wire [N-1:0][31:0] b_col,
     input wire [31:0]       c_val,
+    input wire [7:0]        sf_a,
+    input wire [7:0]        sf_b,
     input wire [TCU_MAX_INPUTS-1:0] vld_mask,
 
     output wire [EXP_W-1:0]   max_exp,
@@ -44,27 +46,27 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*;  #(
     // 1. Classification
     // ----------------------------------------------------------------------
     fedp_class_t [N-1:0] cls_tf32 [2];
-    VX_tcu_drl_classifier #(.N(N), .WIDTH(32), .FMT(TCU_TF32_ID)) c_a_tf32 (.val(a_row), .cls(cls_tf32[0]));
-    VX_tcu_drl_classifier #(.N(N), .WIDTH(32), .FMT(TCU_TF32_ID)) c_b_tf32 (.val(b_col), .cls(cls_tf32[1]));
+    VX_tcu_tfr_classifier #(.N(N), .WIDTH(32), .FMT(TCU_TF32_ID)) c_a_tf32 (.val(a_row), .cls(cls_tf32[0]));
+    VX_tcu_tfr_classifier #(.N(N), .WIDTH(32), .FMT(TCU_TF32_ID)) c_b_tf32 (.val(b_col), .cls(cls_tf32[1]));
 
     fedp_class_t [TCK-1:0] cls_fp16 [2];
-    VX_tcu_drl_classifier #(.N(2 * N), .WIDTH(16), .FMT(TCU_FP16_ID)) c_a_fp16 (.val(a_row), .cls(cls_fp16[0]));
-    VX_tcu_drl_classifier #(.N(2 * N), .WIDTH(16), .FMT(TCU_FP16_ID)) c_b_fp16 (.val(b_col), .cls(cls_fp16[1]));
+    VX_tcu_tfr_classifier #(.N(2 * N), .WIDTH(16), .FMT(TCU_FP16_ID)) c_a_fp16 (.val(a_row), .cls(cls_fp16[0]));
+    VX_tcu_tfr_classifier #(.N(2 * N), .WIDTH(16), .FMT(TCU_FP16_ID)) c_b_fp16 (.val(b_col), .cls(cls_fp16[1]));
 
     fedp_class_t [TCK-1:0] cls_bf16 [2];
-    VX_tcu_drl_classifier #(.N(2 * N), .WIDTH(16), .FMT(TCU_BF16_ID)) c_a_bf16 (.val(a_row), .cls(cls_bf16[0]));
-    VX_tcu_drl_classifier #(.N(2 * N), .WIDTH(16), .FMT(TCU_BF16_ID)) c_b_bf16 (.val(b_col), .cls(cls_bf16[1]));
+    VX_tcu_tfr_classifier #(.N(2 * N), .WIDTH(16), .FMT(TCU_BF16_ID)) c_a_bf16 (.val(a_row), .cls(cls_bf16[0]));
+    VX_tcu_tfr_classifier #(.N(2 * N), .WIDTH(16), .FMT(TCU_BF16_ID)) c_b_bf16 (.val(b_col), .cls(cls_bf16[1]));
 
     fedp_class_t [2*TCK-1:0] cls_fp8 [2];
-    VX_tcu_drl_classifier #(.N(4 * N), .WIDTH(8), .FMT(TCU_FP8_ID)) c_a_fp8 (.val(a_row), .cls(cls_fp8[0]));
-    VX_tcu_drl_classifier #(.N(4 * N), .WIDTH(8), .FMT(TCU_FP8_ID)) c_b_fp8 (.val(b_col), .cls(cls_fp8[1]));
+    VX_tcu_tfr_classifier #(.N(4 * N), .WIDTH(8), .FMT(TCU_FP8_ID)) c_a_fp8 (.val(a_row), .cls(cls_fp8[0]));
+    VX_tcu_tfr_classifier #(.N(4 * N), .WIDTH(8), .FMT(TCU_FP8_ID)) c_b_fp8 (.val(b_col), .cls(cls_fp8[1]));
 
     fedp_class_t [2*TCK-1:0] cls_bf8 [2];
-    VX_tcu_drl_classifier #(.N(4 * N), .WIDTH(8), .FMT(TCU_BF8_ID)) c_a_bf8 (.val(a_row), .cls(cls_bf8[0]));
-    VX_tcu_drl_classifier #(.N(4 * N), .WIDTH(8), .FMT(TCU_BF8_ID)) c_b_bf8 (.val(b_col), .cls(cls_bf8[1]));
+    VX_tcu_tfr_classifier #(.N(4 * N), .WIDTH(8), .FMT(TCU_BF8_ID)) c_a_bf8 (.val(a_row), .cls(cls_bf8[0]));
+    VX_tcu_tfr_classifier #(.N(4 * N), .WIDTH(8), .FMT(TCU_BF8_ID)) c_b_bf8 (.val(b_col), .cls(cls_bf8[1]));
 
     fedp_class_t [0:0] cls_c;
-    VX_tcu_drl_classifier #(.N(1), .WIDTH(32), .FMT(TCU_FP32_ID)) c_c (.val(c_val), .cls(cls_c));
+    VX_tcu_tfr_classifier #(.N(1), .WIDTH(32), .FMT(TCU_FP32_ID)) c_c (.val(c_val), .cls(cls_c));
 
     // ----------------------------------------------------------------------
     // 2. Mantissa Product
@@ -73,7 +75,7 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*;  #(
     wire [TCK-1:0][5:0] exp_diff_f8;
     wire [TCK:0][EXP_W-1:0] raw_exps;
 
-    VX_tcu_drl_shared_mul #(
+    VX_tcu_tfr_shared_mul #(
         .N   (N),
         .TCK (TCK)
     ) shared_mul_inst (
@@ -96,7 +98,7 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*;  #(
     // 3. Exponent Product
     // ----------------------------------------------------------------------
 
-    VX_tcu_drl_exp_bias #(
+    VX_tcu_tfr_exp_bias #(
         .N   (N),
         .TCK (TCK),
         .W   (W),
@@ -108,6 +110,8 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*;  #(
         .a_row      (a_row),
         .b_col      (b_col),
         .c_val      (c_val),
+        .sf_a       (sf_a),
+        .sf_b       (sf_b),
         .cls_tf32   (cls_tf32),
         .cls_fp16   (cls_fp16),
         .cls_bf16   (cls_bf16),
@@ -122,7 +126,7 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*;  #(
     // 4. Max Exponent
     // ----------------------------------------------------------------------
 
-    VX_tcu_drl_max_exp #(
+    VX_tcu_tfr_max_exp #(
         .N     (TCK+1),
         .WIDTH (EXP_W)
     ) find_max_exp (
@@ -135,7 +139,7 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*;  #(
     // 5. Exception Flags
     // ----------------------------------------------------------------------
 
-    VX_tcu_drl_exceptions #(
+    VX_tcu_tfr_exceptions #(
         .N   (N),
         .TCK (TCK)
     ) exceptions_inst (
@@ -153,7 +157,7 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*;  #(
     // ----------------------------------------------------------------------
     // 6. Lane Mask
     // ----------------------------------------------------------------------
-    VX_tcu_drl_lane_mask #(
+    VX_tcu_tfr_lane_mask #(
         .N   (N),
         .TCK (TCK)
     ) lane_mask_inst (
