@@ -23,6 +23,8 @@ module VX_tcu_tfr_shared_mul import VX_tcu_pkg::*; #(
     input wire [N-1:0][31:0]   a_row,
     input wire [N-1:0][31:0]   b_col,
     input wire [31:0]          c_val,
+    input wire [7:0]           sf_a,
+    input wire [7:0]           sf_b,
 
     input fedp_class_t [N-1:0]     cls_tf32 [2],
     input fedp_class_t [TCK-1:0]   cls_fp16 [2],
@@ -228,6 +230,23 @@ module VX_tcu_tfr_shared_mul import VX_tcu_pkg::*; #(
             `UNUSED_PIN (cout)
         );
 
+        //MXINT8
+        wire signed [7:0] sf_wo_bias_a = sf_a - 8'd133;
+        wire signed [7:0] sf_wo_bias_b = sf_b - 8'd133;
+        wire signed [7:0] sf_wo_bias = sf_wo_bias_a + sf_wo_bias_b;
+        wire [7:0] abs_sf = -sf_wo_bias;
+        // Apply scale shift per-product with truncation toward zero (matching C++ (int32_t)(float) cast)
+        wire signed [24:0] y_prod_ext_0 = 25'($signed(y_prod_i8[0]));
+        wire signed [24:0] y_prod_ext_1 = 25'($signed(y_prod_i8[1]));
+        wire [24:0] trunc_bias_0 = y_prod_ext_0[24] ? ((25'd1 << abs_sf) - 25'd1) : 25'd0;
+        wire [24:0] trunc_bias_1 = y_prod_ext_1[24] ? ((25'd1 << abs_sf) - 25'd1) : 25'd0;
+        wire signed [24:0] y_prod_biased_0 = y_prod_ext_0 + $signed(trunc_bias_0);
+        wire signed [24:0] y_prod_biased_1 = y_prod_ext_1 + $signed(trunc_bias_1);
+        wire signed [24:0] y_mxi8_scaled_0 = sf_wo_bias[7] ? (y_prod_biased_0 >>> abs_sf) : (y_prod_ext_0 <<< sf_wo_bias);
+        wire signed [24:0] y_mxi8_scaled_1 = sf_wo_bias[7] ? (y_prod_biased_1 >>> abs_sf) : (y_prod_ext_1 <<< sf_wo_bias);
+        wire [24:0] y_mxi8_add_res = y_mxi8_scaled_0 + y_mxi8_scaled_1;
+        `UNUSED_VAR ({sf_a, sf_b})
+        
         // Mux Output
         always_comb begin
             case (fmt_s[3:0])
@@ -240,13 +259,14 @@ module VX_tcu_tfr_shared_mul import VX_tcu_pkg::*; #(
             `endif
             `ifdef TCU_FP8_ENABLE
                 TCU_FP8_ID, TCU_BF8_ID:   y[i] = {sign_f8_add, y_f8_add};
-            `endif
                 TCU_MXFP8_ID:             y[i] = {sign_f8_add, y_f8_add};//is the same as FP8
+            `endif
             `ifdef TCU_INT_ENABLE
                 TCU_I8_ID:                y[i] = 25'($signed(y_i8_add_res));
                 TCU_U8_ID:                y[i] = {8'd0, y_i8_add_res};
                 TCU_I4_ID:                y[i] = 25'($signed(y_i4_add_res));
                 TCU_U4_ID:                y[i] = {15'd0, y_i4_add_res};
+                TCU_MXI8_ID:              y[i] = y_mxi8_add_res;
             `endif
                 default:                  y[i] = 'x;
             endcase
