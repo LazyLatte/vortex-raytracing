@@ -35,8 +35,6 @@ module VX_tcu_tfr_mul_exp import VX_tcu_pkg::*;  #(
     `UNUSED_SPARAM (INSTANCE_ID)
     `UNUSED_VAR ({clk, req_id, valid_in})
 
-    `UNUSED_VAR ({sf_a, sf_b}) // TODO
-
     // ======================================================================
     // 1. Independent Compute Paths
     // ======================================================================
@@ -102,6 +100,8 @@ module VX_tcu_tfr_mul_exp import VX_tcu_pkg::*;  #(
         .fmt_i      (fmt_s[2:0]),
         .a_row      (a_row),
         .b_col      (b_col),
+        .sf_a       (sf_a),
+        .sf_b       (sf_b),
         .result     (mul_int_sig)
     );
 
