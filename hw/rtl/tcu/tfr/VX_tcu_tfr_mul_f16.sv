@@ -13,7 +13,7 @@
 
 `include "VX_define.vh"
 
-module VX_tcu_drl_mul_f16 import VX_tcu_pkg::*; #(
+module VX_tcu_tfr_mul_f16 import VX_tcu_pkg::*; #(
     parameter `STRING INSTANCE_ID = "",
     parameter N     = 2,
     parameter TCK   = 2 * N,
@@ -49,14 +49,14 @@ module VX_tcu_drl_mul_f16 import VX_tcu_pkg::*; #(
     fedp_class_t [TCK-1:0] cls_fp16 [2];
     fedp_class_t [TCK-1:0] cls_bf16 [2];
 
-    VX_tcu_drl_classifier #(.N(N), .WIDTH(32), .FMT(TCU_TF32_ID)) c_a_tf32 (.val(a_row), .cls(cls_tf32[0]));
-    VX_tcu_drl_classifier #(.N(N), .WIDTH(32), .FMT(TCU_TF32_ID)) c_b_tf32 (.val(b_col), .cls(cls_tf32[1]));
+    VX_tcu_tfr_classifier #(.N(N), .WIDTH(32), .FMT(TCU_TF32_ID)) c_a_tf32 (.val(a_row), .cls(cls_tf32[0]));
+    VX_tcu_tfr_classifier #(.N(N), .WIDTH(32), .FMT(TCU_TF32_ID)) c_b_tf32 (.val(b_col), .cls(cls_tf32[1]));
 
-    VX_tcu_drl_classifier #(.N(TCK), .WIDTH(16), .FMT(TCU_FP16_ID)) c_a_fp16 (.val(a_row), .cls(cls_fp16[0]));
-    VX_tcu_drl_classifier #(.N(TCK), .WIDTH(16), .FMT(TCU_FP16_ID)) c_b_fp16 (.val(b_col), .cls(cls_fp16[1]));
+    VX_tcu_tfr_classifier #(.N(TCK), .WIDTH(16), .FMT(TCU_FP16_ID)) c_a_fp16 (.val(a_row), .cls(cls_fp16[0]));
+    VX_tcu_tfr_classifier #(.N(TCK), .WIDTH(16), .FMT(TCU_FP16_ID)) c_b_fp16 (.val(b_col), .cls(cls_fp16[1]));
 
-    VX_tcu_drl_classifier #(.N(TCK), .WIDTH(16), .FMT(TCU_BF16_ID)) c_a_bf16 (.val(a_row), .cls(cls_bf16[0]));
-    VX_tcu_drl_classifier #(.N(TCK), .WIDTH(16), .FMT(TCU_BF16_ID)) c_b_bf16 (.val(b_col), .cls(cls_bf16[1]));
+    VX_tcu_tfr_classifier #(.N(TCK), .WIDTH(16), .FMT(TCU_BF16_ID)) c_a_bf16 (.val(a_row), .cls(cls_bf16[0]));
+    VX_tcu_tfr_classifier #(.N(TCK), .WIDTH(16), .FMT(TCU_BF16_ID)) c_b_bf16 (.val(b_col), .cls(cls_bf16[1]));
 
     // ======================================================================
     // 2. Constants & Parameters

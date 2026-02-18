@@ -3,7 +3,7 @@
 // See the License for the specific language governing permissions and limitations.
 `include "VX_define.vh"
 
-module VX_tcu_drl_mul_exp import VX_tcu_pkg::*; #(
+module VX_tcu_tfr_mul_exp import VX_tcu_pkg::*;  #(
     parameter `STRING INSTANCE_ID = "",
     parameter N = 2,            // Number of 32-bit input registers
     parameter W = 25,           // Product width
@@ -15,12 +15,15 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*; #(
     input wire              valid_in,
     input wire [31:0]       req_id,
 
+    input wire [TCU_MAX_INPUTS-1:0] vld_mask,
+
     input wire [3:0]        fmt_s,
 
     input wire [N-1:0][31:0] a_row,
     input wire [N-1:0][31:0] b_col,
     input wire [31:0]        c_val,
-    input wire [TCU_MAX_INPUTS-1:0] vld_mask,
+    input wire [7:0]         sf_a,
+    input wire [7:0]         sf_b,
 
     output wire [EXP_W-1:0]   max_exp,
     output wire [TCK:0][EXP_W-1:0] exponents,
@@ -32,8 +35,10 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*; #(
     `UNUSED_SPARAM (INSTANCE_ID)
     `UNUSED_VAR ({clk, req_id, valid_in})
 
+    `UNUSED_VAR ({sf_a, sf_b}) // TODO
+
     // ======================================================================
-    // 1. Independent Compute Paths (With Local Exceptions)
+    // 1. Independent Compute Paths
     // ======================================================================
 
     // --- F16 / BF16 / TF32 ------------------------------------------------
@@ -41,7 +46,7 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*; #(
     wire [TCK-1:0][EXP_W-1:0] mul_f16_exp;
     fedp_excep_t [TCK-1:0]    mul_f16_exc;
 
-    VX_tcu_drl_mul_f16 #(
+    VX_tcu_tfr_mul_f16 #(
         .N(N),
         .TCK(TCK),
         .W(W),
@@ -65,7 +70,7 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*; #(
     wire [TCK-1:0][EXP_W-1:0] mul_f8_exp;
     fedp_excep_t [TCK-1:0]    mul_f8_exc;
 
-    VX_tcu_drl_mul_f8 #(
+    VX_tcu_tfr_mul_f8 #(
         .N(N),
         .TCK(TCK),
         .W(W),
@@ -86,7 +91,7 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*; #(
 
     // --- I8/U8/I4/U4 ------------------------------------------------------
     wire [TCK-1:0][24:0] mul_int_sig;
-    VX_tcu_drl_mul_int #(
+    VX_tcu_tfr_mul_int #(
         .N(N),
         .TCK(TCK)
     ) mul_int (
@@ -104,7 +109,7 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*; #(
     // 2. Aggregation & Exception Reduction
     // ======================================================================
 
-    VX_tcu_drl_mul_join #(
+    VX_tcu_tfr_mul_join #(
         .N(N),
         .TCK(TCK),
         .W(W),
@@ -138,7 +143,7 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*; #(
     // 3. Global Maximum Exponent
     // ======================================================================
 
-    VX_tcu_drl_max_exp #(
+    VX_tcu_tfr_max_exp #(
         .N     (TCK+1),
         .WIDTH (EXP_W)
     ) find_max_exp (
@@ -150,7 +155,7 @@ module VX_tcu_drl_mul_exp import VX_tcu_pkg::*; #(
     // 4. Lane Mask
     // ======================================================================
 
-    VX_tcu_drl_lane_mask #(
+    VX_tcu_tfr_lane_mask #(
         .N   (N),
         .TCK (TCK)
     ) lane_mask_inst (

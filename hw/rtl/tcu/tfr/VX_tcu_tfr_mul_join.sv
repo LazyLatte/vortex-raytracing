@@ -13,7 +13,7 @@
 
 `include "VX_define.vh"
 
-module VX_tcu_drl_mul_join import VX_tcu_pkg::*; #(
+module VX_tcu_tfr_mul_join import VX_tcu_pkg::*; #(
     parameter `STRING INSTANCE_ID = "",
     parameter N     = 2,
     parameter TCK   = 2 * N,
@@ -104,7 +104,7 @@ module VX_tcu_drl_mul_join import VX_tcu_pkg::*; #(
 
     // 2a. Local Classifier for C (Check for Zero/Nan/Inf)
     fedp_class_t cls_c;
-    VX_tcu_drl_classifier #(.N(1), .WIDTH(32), .FMT(TCU_FP32_ID)) c_c (.val(c_val), .cls(cls_c));
+    VX_tcu_tfr_classifier #(.N(1), .WIDTH(32), .FMT(TCU_FP32_ID)) c_c (.val(c_val), .cls(cls_c));
     `UNUSED_VAR (cls_c)
 
     // 2b. C-Term Signal Extraction

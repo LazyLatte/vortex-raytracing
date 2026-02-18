@@ -13,7 +13,7 @@
 
 `include "VX_define.vh"
 
-module VX_tcu_drl_mul_f8 import VX_tcu_pkg::*; #(
+module VX_tcu_tfr_mul_f8 import VX_tcu_pkg::*; #(
     parameter `STRING INSTANCE_ID = "",
     parameter N     = 2,
     parameter TCK   = 2 * N,
@@ -48,11 +48,11 @@ module VX_tcu_drl_mul_f8 import VX_tcu_pkg::*; #(
     fedp_class_t [2*TCK-1:0] cls_fp8 [2];
     fedp_class_t [2*TCK-1:0] cls_bf8 [2];
 
-    VX_tcu_drl_classifier #(.N(4*N), .WIDTH(8), .FMT(TCU_FP8_ID)) c_a_fp8 (.val(a_row), .cls(cls_fp8[0]));
-    VX_tcu_drl_classifier #(.N(4*N), .WIDTH(8), .FMT(TCU_FP8_ID)) c_b_fp8 (.val(b_col), .cls(cls_fp8[1]));
+    VX_tcu_tfr_classifier #(.N(4*N), .WIDTH(8), .FMT(TCU_FP8_ID)) c_a_fp8 (.val(a_row), .cls(cls_fp8[0]));
+    VX_tcu_tfr_classifier #(.N(4*N), .WIDTH(8), .FMT(TCU_FP8_ID)) c_b_fp8 (.val(b_col), .cls(cls_fp8[1]));
 
-    VX_tcu_drl_classifier #(.N(4*N), .WIDTH(8), .FMT(TCU_BF8_ID)) c_a_bf8 (.val(a_row), .cls(cls_bf8[0]));
-    VX_tcu_drl_classifier #(.N(4*N), .WIDTH(8), .FMT(TCU_BF8_ID)) c_b_bf8 (.val(b_col), .cls(cls_bf8[1]));
+    VX_tcu_tfr_classifier #(.N(4*N), .WIDTH(8), .FMT(TCU_BF8_ID)) c_a_bf8 (.val(a_row), .cls(cls_bf8[0]));
+    VX_tcu_tfr_classifier #(.N(4*N), .WIDTH(8), .FMT(TCU_BF8_ID)) c_b_bf8 (.val(b_col), .cls(cls_bf8[1]));
 
     // ======================================================================
     // 2. Constants & Parameters

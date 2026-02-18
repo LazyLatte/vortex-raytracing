@@ -13,7 +13,7 @@
 
 `include "VX_define.vh"
 
-module VX_tcu_fedp_drl import VX_tcu_pkg::*; #(
+module VX_tcu_fedp_tfr import VX_tcu_pkg::*; #(
     parameter `STRING INSTANCE_ID = "",
     parameter PER_LANE_VALID = 0,
     parameter LATENCY = 0,
@@ -42,8 +42,6 @@ module VX_tcu_fedp_drl import VX_tcu_pkg::*; #(
 
     localparam ALN_SIG_W = W + 2;
     localparam ACC_SIG_W = W + 1 + HR;
-
-    localparam LZC_W = $clog2(ACC_SIG_W);
 
     // Latency Configuration
     localparam MUL_LATENCY = 1;
@@ -83,7 +81,13 @@ module VX_tcu_fedp_drl import VX_tcu_pkg::*; #(
     wire [TOTAL_LATENCY:0] vld_pipe = {vld_pipe_r, (~reset && enable && vld_any)};
     wire [TOTAL_LATENCY:0][31:0] req_pipe = {req_pipe_r, req_id};
 
-    // ======================================================================
+    //TODO: temp hardcoded scale factors (input from module)
+    wire [7:0] SCALE_FACTOR_E8M0_A = 8'd129;
+    wire [7:0] SCALE_FACTOR_E8M0_B = 8'd131;
+    wire [7:0] SCALE_FACTOR_E4M3_A = 8'h41;
+    wire [7:0] SCALE_FACTOR_E4M3_B = 8'h33;
+    `UNUSED_VAR ({SCALE_FACTOR_E8M0_A, SCALE_FACTOR_E8M0_B, SCALE_FACTOR_E4M3_A, SCALE_FACTOR_E4M3_B})
+
     // Stage 1: Multiply & Max Exponent
     // ======================================================================
 
@@ -99,7 +103,7 @@ module VX_tcu_fedp_drl import VX_tcu_pkg::*; #(
     wire [7:0] cval_top = c_val[31:24];
     wire [6:0] cval_hi = cval_top[7:1] + 7'(cval_top[0]);
 
-    VX_tcu_drl_mul_exp #(
+    VX_tcu_tfr_mul_exp #(
         .N (N),
         .W (W),
         .WA(ACC_SIG_W),
@@ -108,11 +112,13 @@ module VX_tcu_fedp_drl import VX_tcu_pkg::*; #(
         .clk(clk),
         .valid_in(vld_pipe[S0_IDX]),
         .req_id(req_pipe[S0_IDX]),
+        .vld_mask(vld_mask | TCU_MAX_INPUTS'(PER_LANE_VALID == 0)),
         .fmt_s(fmt_s),
         .a_row(a_row),
         .b_col(b_col),
         .c_val(c_val),
-        .vld_mask(vld_mask | TCU_MAX_INPUTS'(PER_LANE_VALID == 0)),
+        .sf_a(SCALE_FACTOR_E8M0_A),
+        .sf_b(SCALE_FACTOR_E8M0_B),
         .max_exp(max_exp),
         .exponents(exponents),
         .raw_sigs(raw_sigs),
@@ -132,14 +138,16 @@ module VX_tcu_fedp_drl import VX_tcu_pkg::*; #(
     `MAP_AOS_SOA(i, TCK, pipe_mul_lane_din[i], raw_sigs[i])
     `MAP_AOS_SOA(i, TCK, s1_raw_sig[i], pipe_mul_lane_dout[i])
 
-    VX_tcu_drl_pipe_register #(
+    VX_tcu_tfr_pipe_register #(
         .NUM_LANES      (TCK),
         .SHARED_DATAW   (EXP_W + ((TCK+1)*EXP_W) + EXC_W + TCK + W + C_HI_W + 1),
         .LANE_DATAW     (W),
         .DEPTH          (MUL_LATENCY),
         .PER_LANE_VALID (PER_LANE_VALID)
     ) pipe_mul (
-        .clk(clk), .reset(reset), .enable(enable),
+        .clk(clk),
+        .reset(reset),
+        .enable(enable),
         .lane_mask (lane_mask),
         .shared_data_in ({max_exp,    exponents,    exceptions,    lane_mask,    raw_sigs[TCK],    cval_hi,    is_int}),
         .shared_data_out({s1_max_exp, s1_exponents, s1_exceptions, s1_lane_mask, s1_raw_sig[TCK],  s1_cval_hi, s1_is_int}),
@@ -154,7 +162,7 @@ module VX_tcu_fedp_drl import VX_tcu_pkg::*; #(
     wire [TCK:0][ALN_SIG_W-1:0] s1_aln_sigs;
     wire [TCK:0]                s1_aln_sticky;
 
-    VX_tcu_drl_align #(
+    VX_tcu_tfr_align #(
         .N (TCK+1),
         .WI(W),
         .WO(ALN_SIG_W),
@@ -183,14 +191,16 @@ module VX_tcu_fedp_drl import VX_tcu_pkg::*; #(
     `MAP_AOS_SOA(i, TCK, pipe_aln_lane_din[i], {s1_aln_sigs[i], s1_aln_sticky[i]})
     `MAP_AOS_SOA(i, TCK, {s2_aln_sigs[i], s2_aln_sticky[i]}, pipe_aln_lane_dout[i])
 
-    VX_tcu_drl_pipe_register #(
+    VX_tcu_tfr_pipe_register #(
         .NUM_LANES      (TCK),
         .SHARED_DATAW   (EXP_W + EXC_W + TCK + ALN_SIG_W + 1 + C_HI_W + 1),
         .LANE_DATAW     (ALN_SIG_W + 1),
         .DEPTH          (ALN_LATENCY),
         .PER_LANE_VALID (PER_LANE_VALID)
     ) pipe_aln (
-        .clk(clk), .reset(reset), .enable(enable),
+        .clk(clk),
+        .reset(reset),
+        .enable(enable),
         .lane_mask (s1_lane_mask),
         .shared_data_in ({s1_max_exp, s1_exceptions, s1_lane_mask, s1_aln_sigs[TCK], s1_aln_sticky[TCK], s1_cval_hi, s1_is_int}),
         .shared_data_out({s2_max_exp, s2_exceptions, s2_lane_mask, s2_aln_sigs[TCK], s2_aln_sticky[TCK], s2_cval_hi, s2_is_int}),
@@ -204,9 +214,8 @@ module VX_tcu_fedp_drl import VX_tcu_pkg::*; #(
 
     wire [ACC_SIG_W-1:0] s2_acc_sum;
     wire                 s2_acc_sticky;
-    wire [LZC_W-1:0]     s2_lzc_count = '0;
 
-    VX_tcu_drl_acc #(
+    VX_tcu_tfr_acc #(
         .N (TCK+1),
         .WI(ALN_SIG_W),
         .WO(ACC_SIG_W)
@@ -218,43 +227,43 @@ module VX_tcu_fedp_drl import VX_tcu_pkg::*; #(
         .sigs_in(s2_aln_sigs),
         .sticky_in(s2_aln_sticky),
         .sig_out(s2_acc_sum),
-        //.lzc_count(s2_lzc_count),
         .sticky_out(s2_acc_sticky)
     );
 
     wire [EXP_W-1:0]      s3_max_exp;
     wire [ACC_SIG_W-1:0]  s3_acc_sum;
-    wire [LZC_W-1:0]      s3_lzc_count;
     fedp_excep_t          s3_exceptions;
     wire                  s3_acc_sticky;
     wire                  s3_is_int;
     wire [C_HI_W-1:0]     s3_cval_hi;
 
     VX_pipe_register #(
-        .DATAW (EXP_W + ACC_SIG_W + LZC_W + EXC_W + 1 + C_HI_W + 1),
+        .DATAW (EXP_W + ACC_SIG_W + EXC_W + 1 + C_HI_W + 1),
         .DEPTH (ACC_LATENCY)
     ) pipe_acc (
-        .clk(clk), .reset(reset), .enable(enable),
-        .data_in ({s2_max_exp, s2_acc_sum, s2_lzc_count, s2_exceptions, s2_acc_sticky, s2_cval_hi, s2_is_int}),
-        .data_out({s3_max_exp, s3_acc_sum, s3_lzc_count, s3_exceptions, s3_acc_sticky, s3_cval_hi, s3_is_int})
+        .clk(clk),
+        .reset(reset),
+        .enable(enable),
+        .data_in ({s2_max_exp, s2_acc_sum, s2_exceptions, s2_acc_sticky, s2_cval_hi, s2_is_int}),
+        .data_out({s3_max_exp, s3_acc_sum, s3_exceptions, s3_acc_sticky, s3_cval_hi, s3_is_int})
     );
-
-    `UNUSED_VAR (s3_lzc_count)
 
     // ======================================================================
     // Stage 4: Normalization and rounding
     // ======================================================================
 
     wire [31:0] final_result;
-    VX_tcu_drl_norm_round #(
-        .EXP_W (EXP_W), .C_HI_W(C_HI_W), .WA (ACC_SIG_W)
+
+    VX_tcu_tfr_norm_round #(
+        .EXP_W (EXP_W),
+        .C_HI_W(C_HI_W),
+        .WA (ACC_SIG_W)
     ) norm_round (
         .clk(clk),
         .valid_in(vld_pipe[S3_IDX]),
         .req_id(req_pipe[S3_IDX]),
         .max_exp(s3_max_exp),
         .acc_sig(s3_acc_sum),
-        //.lzc_count(s3_lzc_count),
         .sticky_in(s3_acc_sticky),
         .exceptions(s3_exceptions),
         .cval_hi(s3_cval_hi),
@@ -263,9 +272,12 @@ module VX_tcu_fedp_drl import VX_tcu_pkg::*; #(
     );
 
     VX_pipe_register #(
-        .DATAW (32), .DEPTH (NRM_LATENCY)
+        .DATAW (32),
+        .DEPTH (NRM_LATENCY)
     ) pipe_norm_round (
-        .clk(clk), .reset(reset), .enable(enable),
+        .clk(clk),
+        .reset(reset),
+        .enable(enable),
         .data_in (final_result),
         .data_out(d_val)
     );
