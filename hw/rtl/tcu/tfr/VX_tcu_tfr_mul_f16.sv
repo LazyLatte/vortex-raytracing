@@ -69,6 +69,9 @@ module VX_tcu_tfr_mul_f16 import VX_tcu_pkg::*;
 
     `UNUSED_PARAM (BIAS_CONST_TF32)
     `UNUSED_PARAM (BIAS_CONST_BF16)
+    `UNUSED_PARAM (S_TF32)
+    `UNUSED_PARAM (S_BF16)
+
 
     // ======================================================================
     // 2. Main Loop (Per TCK Lane)
