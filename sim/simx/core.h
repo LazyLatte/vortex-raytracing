@@ -71,6 +71,9 @@ public:
   #ifdef EXT_TCU_ENABLE
     uint64_t tcu_stalls = 0;
   #endif
+  #ifdef EXT_RTU_ENABLE
+    uint64_t rtu_stalls = 0;
+  #endif
     uint64_t branches   = 0;
     uint64_t divergence = 0;
     uint64_t alu_instrs = 0;
@@ -79,6 +82,9 @@ public:
     uint64_t sfu_instrs = 0;
   #ifdef EXT_TCU_ENABLE
     uint64_t tcu_instrs = 0;
+  #endif
+  #ifdef EXT_RTU_ENABLE
+    uint64_t rtu_instrs = 0;
   #endif
   #ifdef EXT_V_ENABLE
     uint64_t vpu_instrs = 0;
@@ -177,6 +183,12 @@ public:
   }
 #endif
 
+#ifdef EXT_RTU_ENABLE
+  RTUnit::Ptr& rt_unit() {
+    return rt_unit_;
+  }
+#endif
+
 #ifdef EXT_V_ENABLE
   VecUnit::Ptr& vec_unit() {
     return vec_unit_;
@@ -210,6 +222,10 @@ private:
 
 #ifdef EXT_TCU_ENABLE
   TensorUnit::Ptr tensor_unit_;
+#endif
+
+#ifdef EXT_RTU_ENABLE
+  RTUnit::Ptr rt_unit_;
 #endif
 
 #ifdef EXT_V_ENABLE

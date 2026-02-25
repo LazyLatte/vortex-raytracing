@@ -42,6 +42,13 @@ ifneq ($(filter -DEXT_TCU_ENABLE, $(XCONFIGS)),)
   	SRCS += $(SRC_DIR)/tensor_unit.cpp
 endif
 
+# Add RTU extension sources
+ifneq ($(findstring -DEXT_RTU_ENABLE, $(CONFIGS)),)
+  	SRCS += $(SRC_DIR)/rt_unit.cpp
+	SRCS += $(SRC_DIR)/rt_traversal.cpp
+	SRCS += $(SRC_DIR)/rt_sim.cpp
+endif
+
 # Add DXA extension sources
 ifneq ($(filter -DEXT_DXA_ENABLE -DEXT_DXA_ENABLE=%, $(XCONFIGS)),)
 	SRCS += $(SRC_DIR)/dxa_engine.cpp

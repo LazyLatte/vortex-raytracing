@@ -149,4 +149,18 @@ public:
 
 #endif
 
+///////////////////////////////////////////////////////////////////////////////
+
+#ifdef EXT_RTU_ENABLE
+
+class RtuUnit : public FuncUnit {
+public:
+	RtuUnit(const SimContext& ctx, const char* name, Core*);
+
+	void tick() override;
+};
+
+#endif
+
 }
+

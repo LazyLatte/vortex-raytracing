@@ -168,6 +168,9 @@ enum class FUType {
 #ifdef EXT_TCU_ENABLE
   TCU,
 #endif
+#ifdef EXT_RTU_ENABLE
+  RTU,
+#endif
   Count
 };
 
@@ -182,6 +185,9 @@ inline std::ostream &operator<<(std::ostream &os, const FUType& type) {
 #endif
 #ifdef EXT_TCU_ENABLE
   case FUType::TCU: os << "TCU"; break;
+#endif
+#ifdef EXT_RTU_ENABLE
+  case FUType::RTU: os << "RTU"; break;
 #endif
   default:
     assert(false);
@@ -732,6 +738,39 @@ inline std::ostream &operator<<(std::ostream &os, const TcuType& type) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+enum class RtuType {
+  INIT_RAY,
+  LOAD_X,
+  LOAD_Y,
+  LOAD_Z,
+  SET_PAYLOAD_ADDR,
+  TRACE,
+  GET_WORK,
+  GET_ATTR,
+  COMMIT
+};
+
+struct IntrRtuArgs {};
+
+inline std::ostream &operator<<(std::ostream &os, const RtuType& type) {
+  switch (type) {
+  case RtuType::INIT_RAY:           os << "INIT_RAY"; break;
+  case RtuType::LOAD_X:             os << "LOAD_X"; break;
+  case RtuType::LOAD_Y:             os << "LOAD_Y"; break;
+  case RtuType::LOAD_Z:             os << "LOAD_Z"; break;
+  case RtuType::SET_PAYLOAD_ADDR:   os << "SET_PAYLOAD_ADDR"; break;
+  case RtuType::TRACE:              os << "TRACE"; break;
+  case RtuType::GET_WORK:           os << "GET_WORK"; break;
+  case RtuType::GET_ATTR:           os << "GET_ATTR"; break;
+  case RtuType::COMMIT:             os << "COMMIT"; break;
+  default:
+    assert(false);
+  }
+  return os;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 using OpType = std::variant<
   AluType
 , BrType
@@ -754,6 +793,9 @@ using OpType = std::variant<
 #ifdef EXT_TCU_ENABLE
 , TcuType
 #endif
+#ifdef EXT_RTU_ENABLE
+, RtuType
+#endif
 >;
 
 using IntrArgs = std::variant<
@@ -775,6 +817,9 @@ using IntrArgs = std::variant<
 #endif
 #ifdef EXT_TCU_ENABLE
 , IntrTcuArgs
+#endif
+#ifdef EXT_RTU_ENABLE
+, IntrRtuArgs
 #endif
 >;
 
@@ -1757,5 +1802,78 @@ private:
 using LsuArbiter  = TxRxArbiter<LsuReq, LsuRsp>;
 using MemArbiter  = TxRxArbiter<MemReq, MemRsp>;
 using MemCrossBar = TxRxCrossBar<MemReq, MemRsp>;
+
+///////////////////////////////////////////////////////////////////////////////
+
+template <typename T, uint32_t CAPACITY>
+class ShortStack {
+public:
+    ShortStack() : head_(0), bottom_(0), count_(0) {}
+
+    void push(const T& entry) {
+        if (count_ == CAPACITY) {
+            bottom_ = (bottom_ + 1) % CAPACITY;
+        } else {
+            count_++;
+        }
+        
+        stack_[head_] = entry;
+        head_ = (head_ + 1) % CAPACITY;
+    }
+
+    T pop() {
+        if (count_ == 0) return T{}; 
+
+        head_ = (head_ == 0) ? (CAPACITY - 1) : (head_ - 1);
+        count_--;
+        return stack_[head_];
+    }
+
+    size_t size() const { return count_; }
+    bool empty() const { return count_ == 0; }
+
+private:
+    uint32_t head_;
+    uint32_t bottom_;
+    uint32_t count_;
+    T stack_[CAPACITY];
+};
+
+///////////////////////////////////////////////////////////////////////////////
+
+template <uint32_t CAPACITY, uint32_t WIDTH>
+class ShaderQueue {
+public:
+    ShaderQueue() : head_(0), tail_(0), count_(0) {}
+
+    void push(uint32_t rayID) {
+        if (count_ < CAPACITY * WIDTH) {
+            data_[tail_] = rayID;
+            tail_ = (tail_ + 1) % (CAPACITY * WIDTH);
+            count_++;
+        }
+    }
+
+    uint32_t pop_warp(uint32_t* out_warp) {
+        uint32_t popped_count = 0;
+        // Pop up to WIDTH rays or until empty
+        while (popped_count < WIDTH && count_ > 0) {
+            out_warp[popped_count++] = data_[head_];
+            head_ = (head_ + 1) % (CAPACITY * WIDTH);
+            count_--;
+        }
+        return popped_count; // Returns how many lanes are active
+    }
+
+    size_t size() const { return count_; }
+    bool empty() const { return count_ == 0; }
+    bool full() const { return count_ == (CAPACITY * WIDTH); }
+
+private:
+    uint32_t head_;
+    uint32_t tail_;
+    uint32_t count_;
+    uint32_t data_[CAPACITY * WIDTH];
+};
 
 }

@@ -28,6 +28,7 @@ all:
 	$(MAKE) -C pathfinder
 	$(MAKE) -C softmax
 	$(MAKE) -C async_barrier
+	$(MAKE) -C raytracing
 
 run-simx:
 	$(MAKE) -C basic run-simx
@@ -56,6 +57,7 @@ run-simx:
 	$(MAKE) -C pathfinder run-simx
 	$(MAKE) -C softmax run-simx
 	$(MAKE) -C async_barrier run-simx
+	$(MAKE) -C raytracing run-simx
 
 run-rtlsim:
 	$(MAKE) -C basic run-rtlsim
@@ -84,6 +86,7 @@ run-rtlsim:
 	$(MAKE) -C pathfinder run-rtlsim
 	$(MAKE) -C softmax run-rtlsim
 	$(MAKE) -C async_barrier run-rtlsim
+	$(MAKE) -C raytracing run-rtlsim
 
 clean:
 	$(MAKE) -C basic clean
@@ -114,3 +117,4 @@ clean:
 	$(MAKE) -C pathfinder clean
 	$(MAKE) -C softmax clean
 	$(MAKE) -C async_barrier clean
+	$(MAKE) -C raytracing clean

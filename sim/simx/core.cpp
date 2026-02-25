@@ -69,6 +69,10 @@ Core::Core(const SimContext& ctx,
   snprintf(sname, 100, "%s-tcu", name);
   tensor_unit_ = TensorUnit::Create(sname, arch, this);
 #endif
+#ifdef EXT_RTU_ENABLE
+  snprintf(sname, 100, "%s-rtu", name);
+  rt_unit_ = RTUnit::Create(sname, arch, dcrs, this);
+#endif
 #ifdef EXT_V_ENABLE
   snprintf(sname, 100, "%s-vpu", name);
   vec_unit_ = VecUnit::Create(sname, arch, this);
@@ -176,6 +180,9 @@ Core::Core(const SimContext& ctx,
 #ifdef EXT_TCU_ENABLE
   dispatchers_.at((int)FUType::TCU) = SimPlatform::instance().create_object<Dispatcher>(name, this, 2, NUM_TCU_BLOCKS, NUM_TCU_LANES);
 #endif
+#ifdef EXT_RTU_ENABLE
+  dispatchers_.at((int)FUType::RTU) = SimPlatform::instance().create_object<Dispatcher>(name, this, 2, NUM_RTU_BLOCKS, NUM_RTU_LANES);
+#endif
 
   // initialize execute units
   snprintf(sname, 100, "%s-alu", name);
@@ -193,6 +200,10 @@ Core::Core(const SimContext& ctx,
 #ifdef EXT_TCU_ENABLE
   snprintf(sname, 100, "%s-tcu", name);
   func_units_.at((int)FUType::TCU) = SimPlatform::instance().create_object<TcuUnit>(sname, this);
+#endif
+#ifdef EXT_RTU_ENABLE
+  snprintf(sname, 100, "%s-rtu", name);
+  func_units_.at((int)FUType::RTU) = SimPlatform::instance().create_object<RtuUnit>(sname, this);
 #endif
 
   // bind commit arbiters
@@ -452,6 +463,9 @@ void Core::execute() {
       #ifdef EXT_TCU_ENABLE
         case FUType::TCU: ++perf_stats_.tcu_stalls; break;
       #endif
+      #ifdef EXT_RTU_ENABLE
+        case FUType::RTU: ++perf_stats_.rtu_stalls; break;
+      #endif
       #ifdef EXT_V_ENABLE
         case FUType::VPU: ++perf_stats_.vpu_stalls; break;
       #endif
@@ -489,6 +503,9 @@ void Core::commit() {
       case FUType::SFU: ++perf_stats_.sfu_instrs; break;
     #ifdef EXT_TCU_ENABLE
       case FUType::TCU: ++perf_stats_.tcu_instrs; break;
+    #endif
+    #ifdef EXT_RTU_ENABLE
+      case FUType::RTU: ++perf_stats_.rtu_instrs; break;
     #endif
     #ifdef EXT_V_ENABLE
       case FUType::VPU: ++perf_stats_.vpu_instrs; break;

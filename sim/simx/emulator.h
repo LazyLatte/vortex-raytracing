@@ -26,7 +26,9 @@
 #ifdef EXT_V_ENABLE
 #include "vec_unit.h"
 #endif
-
+#ifdef EXT_RTU_ENABLE
+#include "rt_unit.h"
+#endif
 namespace vortex {
 
 class Arch;
