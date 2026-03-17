@@ -2,7 +2,7 @@
 #include "rt_traversal.h"
 #include "rt_sim.h"
 #include "core.h"
-
+#include <cassert>
 #define SHADER_QUEUE_CAPACITY 1024
 
 using namespace vortex;
@@ -50,9 +50,10 @@ public:
     void init_ray(std::vector<reg_data_t>& rd_data){
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             uint32_t rayID = cur_rayid_++;
-            if(rayID == 0xF0000000) rayID = 1;
+            if(rayID == 0x10000000) rayID = 1;
             rays_[rayID] = Ray();
             hits_[rayID] = Hit();
+            payload_addrs_[rayID] = 0;
             traversal_trails_[rayID] = {};
             traversal_stacks_[rayID] = TraversalStack();
             rd_data[tid].u32 = rayID;
@@ -67,7 +68,7 @@ public:
             
             float orig = *reinterpret_cast<float*>(&rs2);
             float dir = *reinterpret_cast<float*>(&rs3);
-
+            
             switch(axis){
                 case 0:
                     rays_[rayID].ro_x = orig;
@@ -81,9 +82,10 @@ public:
                     rays_[rayID].ro_z = orig;
                     rays_[rayID].rd_z = dir;
                     break;
-                default: break;
+                default: 
+                    std::cout << "Invalid Axis: " << axis << std::endl;
+                    std::abort();
             }
-
         }  
     }
 
@@ -191,7 +193,7 @@ public:
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             uint32_t rayID = rs1_data[tid].u32;
             uint32_t actionID = rs2_data[tid].u32;
-
+            
             switch(actionID){
                 case VX_RT_COMMIT_CONT: 
                     traverse(rayID, trace_data->m_per_scalar_thread[tid]);
@@ -203,9 +205,10 @@ public:
                 case VX_RT_COMMIT_TERM: 
                     rays_.erase(rayID);
                     hits_.erase(rayID);
+                    payload_addrs_.erase(rayID);
                     traversal_trails_.erase(rayID);
                     traversal_stacks_.erase(rayID);
-                    payload_addrs_.erase(rayID);
+                    trace_data->invalid = true;
                     break;
                 default: break;
             }
@@ -241,8 +244,8 @@ RTUnit::RTUnit(const SimContext &ctx, const char* name, const Arch &arch, const 
     , Inputs(ISSUE_WIDTH, this)
 	, Outputs(ISSUE_WIDTH, this)
 	, impl_(new Impl(this, arch, dcrs, core))
-    , rtu_dcache_req_out(NUM_RTU_BLOCKS, std::vector<SimChannel<MemReq>>(NUM_RTU_LANES, this))
-    , rtu_dcache_rsp_in(NUM_RTU_BLOCKS, std::vector<SimChannel<MemRsp>>(NUM_RTU_LANES, this))
+    , rtu_dcache_req_out(NUM_RTU_LANES, this)
+    , rtu_dcache_rsp_in(NUM_RTU_LANES, this)
 {}
 
 RTUnit::~RTUnit() {

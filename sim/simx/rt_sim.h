@@ -4,6 +4,7 @@
 #include "rt_trace.h"
 #include <unordered_map>
 #include <unordered_set>
+#include <queue>
 namespace vortex {
 	
 class RTSim {
@@ -39,10 +40,10 @@ private:
 
 	std::deque<std::pair<uint32_t, uint32_t>> mem_store_q;
 	std::unordered_map<instr_trace_t*, unsigned long long> warp_latencies_;
-	
+	std::unordered_map<instr_trace_t*, uint32_t> warp_iws_;
+	std::queue<MemReq> mem_req_q;
     std::unordered_set<instr_trace_t*> warp_buffers_;
 	RTUnit::PerfStats perf_stats_;
-
 	instr_trace_t* cur_trace;
 };
 

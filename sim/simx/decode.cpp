@@ -1256,44 +1256,68 @@ void Emulator::decode(uint32_t code, uint32_t wid, uint64_t uuid) {
         uint32_t base = rs1;
         uint32_t dest = rd;
 
-        auto i_init = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        uint32_t steps = 0;
+        uint32_t steps_count = 6;
+        uint32_t steps_shift = 32 - log2ceil(steps_count);
+        uint32_t uuid_hi = (uuid >> 32) & 0xffffffff;
+        uint32_t uuid_lo = uuid & 0xffffffff;
+        
+        uint32_t uuid_lo_x = (steps << steps_shift) | uuid_lo;
+        uint64_t uuid_x = (static_cast<uint64_t>(uuid_hi) << 32) | uuid_lo_x;
+
+        auto i_init = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
         i_init->setArgs(IntrRtuArgs{});
         i_init->setOpType(RtuType::INIT_RAY);
         i_init->setDestReg(dest, RegType::Integer);
         ibuffer.push_back(i_init);
+        steps++;
 
-        auto i_ray_x = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        uuid_lo_x = (steps << steps_shift) | uuid_lo;
+        uuid_x = (static_cast<uint64_t>(uuid_hi) << 32) | uuid_lo_x;
+        auto i_ray_x = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
         i_ray_x->setArgs(IntrRtuArgs{});
         i_ray_x->setOpType(RtuType::LOAD_X);
         i_ray_x->setSrcReg(0, dest, RegType::Integer);
         i_ray_x->setSrcReg(1, base + 0, RegType::Float);
         i_ray_x->setSrcReg(2, base + 3, RegType::Float);
         ibuffer.push_back(i_ray_x);
+        steps++;
 
-        auto i_ray_y = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        uuid_lo_x = (steps << steps_shift) | uuid_lo;
+        uuid_x = (static_cast<uint64_t>(uuid_hi) << 32) | uuid_lo_x;
+        auto i_ray_y = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
         i_ray_y->setArgs(IntrRtuArgs{});
         i_ray_y->setOpType(RtuType::LOAD_Y);
         i_ray_y->setSrcReg(0, dest, RegType::Integer);
         i_ray_y->setSrcReg(1, base + 1, RegType::Float);
         i_ray_y->setSrcReg(2, base + 4, RegType::Float);
         ibuffer.push_back(i_ray_y);
+        steps++;
 
-        auto i_ray_z = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        uuid_lo_x = (steps << steps_shift) | uuid_lo;
+        uuid_x = (static_cast<uint64_t>(uuid_hi) << 32) | uuid_lo_x;
+        auto i_ray_z = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
         i_ray_z->setArgs(IntrRtuArgs{});
         i_ray_z->setOpType(RtuType::LOAD_Z);
         i_ray_z->setSrcReg(0, dest, RegType::Integer);
         i_ray_z->setSrcReg(1, base + 2, RegType::Float);
         i_ray_z->setSrcReg(2, base + 5, RegType::Float);
         ibuffer.push_back(i_ray_z);
+        steps++;
 
-        auto i_payload = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        uuid_lo_x = (steps << steps_shift) | uuid_lo;
+        uuid_x = (static_cast<uint64_t>(uuid_hi) << 32) | uuid_lo_x;
+        auto i_payload = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
         i_payload->setArgs(IntrRtuArgs{});
         i_payload->setOpType(RtuType::SET_PAYLOAD_ADDR);
         i_payload->setSrcReg(0, dest, RegType::Integer);
         i_payload->setSrcReg(1, rs2, RegType::Integer);
         ibuffer.push_back(i_payload);
+        steps++;
 
-        auto i_trace = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
+        uuid_lo_x = (steps << steps_shift) | uuid_lo;
+        uuid_x = (static_cast<uint64_t>(uuid_hi) << 32) | uuid_lo_x;
+        auto i_trace = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
         i_trace->setArgs(IntrRtuArgs{});
         i_trace->setOpType(RtuType::TRACE);
         i_trace->setSrcReg(0, dest, RegType::Integer);

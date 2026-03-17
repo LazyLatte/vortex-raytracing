@@ -30,28 +30,31 @@ void RTSim::add_warp(){
 		if (input.empty())
 			continue;
 
-    auto& output = simobject_->Outputs.at(iw);
-    if (output.full())
-			continue; // stall
-
     auto trace = input.peek();
-    assert(trace != nullptr && "trace is null!!!");
     auto op_type = std::get<RtuType>(trace->op_type);
 
-    if(1 /*op_type != RtuType::TRACE && op_type != RtuType::COMMIT*/){
+    if(op_type != RtuType::TRACE && op_type != RtuType::COMMIT){
       if(simobject_->Outputs.at(iw).try_send(trace, 1)){
         input.pop();
       }
-      
       continue;
     }
 
-    assert(warp_buffers_.count(trace) == 0 && "Cannot add duplicated trace");
+    auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
+    assert(trace_data != nullptr);
+    if(trace_data->invalid){
+      if(simobject_->Outputs.at(iw).try_send(trace, 1)){
+        input.pop();
+      }
+      continue;
+    }
+
+    assert(warp_buffers_.count(trace) == 0);
     warp_buffers_.insert(trace);
     warp_latencies_[trace] = 1;
-    
+    warp_iws_[trace] = iw;
     input.pop();
-    return;
+    break;
   }
 }
 
@@ -111,19 +114,17 @@ void RTSim::process_memory_response(instr_trace_t *rsp_trace, uint32_t rsp_addr)
 }
 
 void RTSim::process_memory_response(){
-  for(uint32_t iw = 0; iw < num_blocks_; iw++){
-    for (uint32_t t = 0; t < num_lanes_; t++) {
-      auto& dcache_rsp_port = simobject_->rtu_dcache_rsp_in.at(iw).at(t);
-      if (dcache_rsp_port.empty())
-          continue;
-      auto& mem_rsp = dcache_rsp_port.peek();
-      auto& entry = pending_reqs_.at(mem_rsp.tag);
-      auto rsp_trace = entry.trace;
-      auto rsp_addr = entry.addr;
-      process_memory_response(rsp_trace, rsp_addr);
-      pending_reqs_.release(mem_rsp.tag);
-      dcache_rsp_port.pop();
-    }
+  for (uint32_t t = 0; t < num_lanes_; t++) {
+    auto& dcache_rsp_port = simobject_->rtu_dcache_rsp_in.at(t);
+    if (dcache_rsp_port.empty())
+        continue;
+    auto& mem_rsp = dcache_rsp_port.peek();
+    auto& entry = pending_reqs_.at(mem_rsp.tag);
+    auto rsp_trace = entry.trace;
+    auto rsp_addr = entry.addr;
+    process_memory_response(rsp_trace, rsp_addr);
+    pending_reqs_.release(mem_rsp.tag);
+    dcache_rsp_port.pop();
   }
 }
 
@@ -138,7 +139,7 @@ void RTSim::process_memory_request(){
     return;
   }
 
-  auto& dcache_req_port = simobject_->rtu_dcache_req_out.at(0).at(0); //???
+  auto& dcache_req_port = simobject_->rtu_dcache_req_out.at(0); //???
 
   if (!mem_store_q.empty()) {
     auto next_store = mem_store_q.front();
@@ -155,25 +156,37 @@ void RTSim::process_memory_request(){
 
     dcache_req_port.try_send(mem_req, 1);
     mem_store_q.pop_front();
-  }else{
-    RTMemoryTransactionRecord next_access = trace_data->get_next_rt_mem_transaction();
+    
+  }else{    
+    if(mem_req_q.empty()){
+      RTMemoryTransactionRecord next_access = trace_data->get_next_rt_mem_transaction();
 
-    auto tag = pending_reqs_.allocate({trace, next_access.addr});
+      auto tag = pending_reqs_.allocate({trace, next_access.addr});
 
-    MemReq mem_req;
-    mem_req.addr  = next_access.addr;
-    mem_req.write = false;
-    mem_req.tag   = tag;
-    mem_req.cid   = trace->cid;
-    mem_req.uuid  = trace->uuid;
+      MemReq mem_req;
+      mem_req.addr  = next_access.addr;
+      mem_req.write = false;
+      mem_req.tag   = tag;
+      mem_req.cid   = trace->cid;
+      mem_req.uuid  = trace->uuid;
 
-    dcache_req_port.try_send(mem_req, 1);
+      if(!dcache_req_port.try_send(mem_req, 1)){
+        mem_req_q.push(mem_req);
+      }
+    }else{
+
+      MemReq mem_req = mem_req_q.front();
+    
+      if(dcache_req_port.try_send(mem_req, 1)){
+        mem_req_q.pop();
+      }
+    }
   }
 }
 
 void RTSim::check_completion(){
   // Check to see if any warps are complete
-  instr_trace_t *target_trace = nullptr;
+  instr_trace_t *target_trace = nullptr;  
   for (instr_trace_t *trace : warp_buffers_) {
     auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
 
@@ -209,9 +222,11 @@ void RTSim::check_completion(){
       perf_stats_.rt_total_simt_efficiency += rt_simt_efficiency;
       
       //std::cout << rt_simt_efficiency << std::endl;
-      simobject_->Outputs.at(0).try_send(trace, warp_latencies_[trace]);
-      warp_latencies_.erase(trace);
-      target_trace = trace;
+      if(simobject_->Outputs.at(warp_iws_[trace]).try_send(trace, warp_latencies_[trace])){
+        warp_latencies_.erase(trace);
+        warp_iws_.erase(trace);
+        target_trace = trace;
+      }
       break;
     }
   }
@@ -242,8 +257,6 @@ void RTSim::tick(){
 
   process_memory_request();
   check_completion();
-
-  
 }
 
 void RTSim::reset(){

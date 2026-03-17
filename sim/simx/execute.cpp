@@ -1629,6 +1629,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
         auto trace_data = std::make_shared<RtuTraceData>(num_threads);
         trace->data = trace_data;    
         core_->rt_unit()->commit(rs1_data, rs2_data, trace_data.get());
+        
       } break;
       default:
         std::abort();

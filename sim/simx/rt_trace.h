@@ -86,7 +86,8 @@ struct RtuTraceData : public ITraceData {
   std::deque<RTMemoryTransactionRecord> m_next_rt_accesses;
   std::set<std::pair<uint32_t, uint32_t> > m_next_rt_accesses_set;
   std::set<uint32_t> m_pending_writes;
-  RtuTraceData(uint32_t num_threads = 0) : m_per_scalar_thread(num_threads) {}
+  bool invalid;
+  RtuTraceData(uint32_t num_threads = 0) : m_per_scalar_thread(num_threads), invalid(false) {}
 
   bool has_pending_writes() { return !m_pending_writes.empty(); }
   bool rt_mem_accesses_empty(){

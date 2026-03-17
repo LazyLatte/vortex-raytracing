@@ -173,8 +173,8 @@ int Tracer::setup(float camera_vfov, float zoom, float3_t light_pos, float3_t li
   // transform BVH instances
   {
     // slightly rotate the scene
-    // auto T = mat4_t::RotateX(-PI / 4) * mat4_t::RotateY(PI / 4);
-    // scene_->applyTransform(T);
+    auto T = mat4_t::RotateX(-PI / 4) * mat4_t::RotateY(PI / 4);
+    scene_->applyTransform(T);
   }
 
   // build the scene

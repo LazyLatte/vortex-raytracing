@@ -160,6 +160,34 @@ Core::Core(const SimContext& ctx,
     }
   }
 
+#ifdef EXT_RTU_ENABLE
+  // create one arbiter per dcache channel
+  assert(NUM_LSU_BLOCKS == NUM_RTU_BLOCKS);
+  std::vector<MemArbiter::Ptr> dcache_arbs(DCACHE_CHANNELS);
+
+  for (uint32_t c = 0; c < DCACHE_CHANNELS; ++c) {
+    snprintf(sname, 100, "%s-dcache_arb%d", name, c);
+    dcache_arbs.at(c) = MemArbiter::Create(sname, ArbiterType::RoundRobin, NUM_LSU_BLOCKS+NUM_RTU_BLOCKS, 1, 1, 1);
+
+    // Connect LSU to dcache arbiter
+    for (uint32_t b = 0; b < NUM_LSU_BLOCKS; ++b) {
+      lsu_dcache_adapter.at(b)->ReqOut.at(c).bind(&dcache_arbs.at(c)->ReqIn.at(b));
+      dcache_arbs.at(c)->RspOut.at(b).bind(&lsu_dcache_adapter.at(b)->RspIn.at(c));
+    }
+
+    // Connect RTU to dcache arbiter
+    for (uint32_t b = 0; b < NUM_RTU_BLOCKS; ++b) {
+      uint32_t arb_idx = NUM_LSU_BLOCKS + b;
+      uint32_t p = b * DCACHE_CHANNELS + c;
+      rt_unit_->rtu_dcache_req_out.at(p).bind(&dcache_arbs.at(c)->ReqIn.at(arb_idx));
+      dcache_arbs.at(c)->RspOut.at(arb_idx).bind(&rt_unit_->rtu_dcache_rsp_in.at(p));
+    }
+
+    // Connect dcache arbiter to dcache
+    dcache_arbs.at(c)->ReqOut.at(0).bind(&this->dcache_req_out.at(c));
+    this->dcache_rsp_in.at(c).bind(&dcache_arbs.at(c)->RspIn.at(0));
+  }
+#else
   // connect dcache adapter
   for (uint32_t b = 0; b < NUM_LSU_BLOCKS; ++b) {
     for (uint32_t c = 0; c < DCACHE_CHANNELS; ++c) {
@@ -168,6 +196,7 @@ Core::Core(const SimContext& ctx,
       this->dcache_rsp_in.at(p).bind(&lsu_dcache_adapter.at(b)->RspIn.at(c));
     }
   }
+#endif
 
   // initialize dispatchers
   dispatchers_.at((int)FUType::ALU) = SimPlatform::instance().create_object<Dispatcher>(name, this, 2, NUM_ALU_BLOCKS, NUM_ALU_LANES);
