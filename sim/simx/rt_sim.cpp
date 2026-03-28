@@ -33,7 +33,7 @@ void RTSim::add_warp(){
     auto trace = input.peek();
     auto op_type = std::get<RtuType>(trace->op_type);
 
-    if(op_type != RtuType::TRACE && op_type != RtuType::COMMIT){
+    if(1 /*op_type != RtuType::TRACE && op_type != RtuType::COMMIT*/){
       if(simobject_->Outputs.at(iw).try_send(trace, 1)){
         input.pop();
       }
@@ -114,18 +114,16 @@ void RTSim::process_memory_response(instr_trace_t *rsp_trace, uint32_t rsp_addr)
 }
 
 void RTSim::process_memory_response(){
-  for (uint32_t t = 0; t < num_lanes_; t++) {
-    auto& dcache_rsp_port = simobject_->rtu_dcache_rsp_in.at(t);
-    if (dcache_rsp_port.empty())
-        continue;
-    auto& mem_rsp = dcache_rsp_port.peek();
+  auto& mem_rsp_port = simobject_->rtu_mem_rsp.at(0);
+  if (!mem_rsp_port.empty()){
+    auto& mem_rsp = mem_rsp_port.peek();
     auto& entry = pending_reqs_.at(mem_rsp.tag);
     auto rsp_trace = entry.trace;
     auto rsp_addr = entry.addr;
     process_memory_response(rsp_trace, rsp_addr);
     pending_reqs_.release(mem_rsp.tag);
-    dcache_rsp_port.pop();
-  }
+    mem_rsp_port.pop();
+  }  
 }
 
 void RTSim::process_memory_request(){
@@ -139,47 +137,39 @@ void RTSim::process_memory_request(){
     return;
   }
 
-  auto& dcache_req_port = simobject_->rtu_dcache_req_out.at(0); //???
+  auto& mem_req_port = simobject_->rtu_mem_req.at(0); // Block 0
 
   if (!mem_store_q.empty()) {
-    auto next_store = mem_store_q.front();
-    uint32_t next_addr = next_store.second;
-    uint32_t warp_uid = next_store.first;
-    auto tag = pending_reqs_.allocate({trace, next_addr});
+    // auto next_store = mem_store_q.front();
+    // uint32_t next_addr = next_store.second;
+    // uint32_t warp_uid = next_store.first;
+    // auto tag = pending_reqs_.allocate({trace, next_addr});
 
-    MemReq mem_req;
-    mem_req.addr  = next_addr;
-    mem_req.write = true;
-    mem_req.tag   = tag;
-    mem_req.cid   = trace->cid; //fix
-    mem_req.uuid  = trace->uuid; //fix
+    // MemReq mem_req;
+    // mem_req.addr  = next_addr;
+    // mem_req.write = true;
+    // mem_req.tag   = tag;
+    // mem_req.cid   = trace->cid; //fix
+    // mem_req.uuid  = trace->uuid; //fix
 
-    dcache_req_port.try_send(mem_req, 1);
-    mem_store_q.pop_front();
+    // mem_req_port.try_send(mem_req, 1);
+    // mem_store_q.pop_front();
     
   }else{    
-    if(mem_req_q.empty()){
+    if(!mem_req_port.full()){
       RTMemoryTransactionRecord next_access = trace_data->get_next_rt_mem_transaction();
 
       auto tag = pending_reqs_.allocate({trace, next_access.addr});
 
-      MemReq mem_req;
+      RtuReq mem_req;
       mem_req.addr  = next_access.addr;
+      mem_req.size  = next_access.size;
       mem_req.write = false;
       mem_req.tag   = tag;
       mem_req.cid   = trace->cid;
       mem_req.uuid  = trace->uuid;
 
-      if(!dcache_req_port.try_send(mem_req, 1)){
-        mem_req_q.push(mem_req);
-      }
-    }else{
-
-      MemReq mem_req = mem_req_q.front();
-    
-      if(dcache_req_port.try_send(mem_req, 1)){
-        mem_req_q.pop();
-      }
+      mem_req_port.send(mem_req, 1);
     }
   }
 }
@@ -247,16 +237,17 @@ void RTSim::cycle(){
 }
 
 void RTSim::tick(){
+  check_completion();
   process_intersection_delay();
   process_memory_response();
   
   //writeback()
-  add_warp();
-  schedule_warp();
+  
+  
   cycle(); // latency++
-
   process_memory_request();
-  check_completion();
+  schedule_warp();
+  add_warp();
 }
 
 void RTSim::reset(){

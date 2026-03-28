@@ -232,10 +232,7 @@ private:
     std::unordered_map<uint32_t, Hit> hits_;
     std::unordered_map<uint32_t, TraversalTrail> traversal_trails_;
     std::unordered_map<uint32_t, TraversalStack> traversal_stacks_;
-
     std::unordered_map<uint32_t, uint32_t> payload_addrs_;
-
-    //std::vector<ShaderQueue> shader_queues;
     std::array<ShaderQueue<SHADER_QUEUE_CAPACITY, NUM_RTU_LANES>, ShaderTypes> shader_queues;
 };
 
@@ -244,8 +241,8 @@ RTUnit::RTUnit(const SimContext &ctx, const char* name, const Arch &arch, const 
     , Inputs(ISSUE_WIDTH, this)
 	, Outputs(ISSUE_WIDTH, this)
 	, impl_(new Impl(this, arch, dcrs, core))
-    , rtu_dcache_req_out(NUM_RTU_LANES, this)
-    , rtu_dcache_rsp_in(NUM_RTU_LANES, this)
+    , rtu_mem_req(NUM_RTU_BLOCKS, this)
+    , rtu_mem_rsp(NUM_RTU_BLOCKS, this)
 {}
 
 RTUnit::~RTUnit() {

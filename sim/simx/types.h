@@ -1876,4 +1876,82 @@ private:
     uint32_t data_[CAPACITY * WIDTH];
 };
 
+///////////////////////////////////////////////////////////////////////////////
+
+struct RtuReq {
+  uint64_t addr;
+  uint32_t size;
+  bool     write;
+  uint32_t tag;
+  uint32_t cid;
+  uint64_t uuid;
+
+  RtuReq()
+    : addr(0)
+    , size(0)
+    , write(false)
+    , tag(0)
+    , cid(0)
+    , uuid(0)
+  {}
+
+  friend std::ostream &operator<<(std::ostream &os, const RtuReq& req) {
+    os << "rw=" << req.write << ", addr=0x" << std::hex << req.addr << std::dec << ", size=" << req.size;
+    os << ", tag=0x" << std::hex << req.tag << std::dec << ", cid=" << req.cid;
+    os << " (#" << req.uuid << ")";
+    return os;
+  }
+};
+
+struct RtuRsp {
+  uint64_t tag;
+  uint32_t cid;
+  uint64_t uuid;
+
+ RtuRsp()
+    : tag(0)
+    , cid(0)
+    , uuid(0)
+  {}
+
+  friend std::ostream &operator<<(std::ostream &os, const RtuRsp& rsp) {
+    os << "tag=0x" << std::hex << rsp.tag << std::dec << ", cid=" << rsp.cid;
+    os << " (#" << rsp.uuid << ")";
+    return os;
+  }
+};
+
+class RtuMemAdapter : public SimObject<RtuMemAdapter> {
+public:
+  using Ptr = std::shared_ptr<RtuMemAdapter>;
+
+  SimChannel<RtuReq> ReqIn;
+  SimChannel<RtuRsp> RspOut;
+
+  std::vector<SimChannel<MemReq>> ReqOut;
+  std::vector<SimChannel<MemRsp>> RspIn;
+
+  RtuMemAdapter(
+    const SimContext& ctx,
+    const char* name,
+    uint32_t num_inputs,
+    uint32_t delay
+  );
+
+  RtuMemAdapter(
+    const SimContext& ctx,
+    const char* name,
+    uint32_t num_inputs
+  ) : RtuMemAdapter(ctx, name, num_inputs, 0)
+  {}
+
+  void reset();
+
+  void tick();
+
+private:
+  uint32_t delay_;
+  uint32_t chunks_sent_;
+};
+
 }

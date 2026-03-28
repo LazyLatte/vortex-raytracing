@@ -47,8 +47,8 @@ public:
     std::vector<SimChannel<instr_trace_t*>> Inputs; 
     std::vector<SimChannel<instr_trace_t*>> Outputs; 
 
-    std::vector<SimChannel<MemReq>> rtu_dcache_req_out;
-    std::vector<SimChannel<MemRsp>> rtu_dcache_rsp_in;
+    std::vector<SimChannel<RtuReq>> rtu_mem_req;
+    std::vector<SimChannel<RtuRsp>> rtu_mem_rsp;
     RTUnit(const SimContext &ctx, const char* name, const Arch &arch, const DCRS &dcrs, Core* core);
     ~RTUnit();
     void reset();

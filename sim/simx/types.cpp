@@ -12,6 +12,7 @@
 // limitations under the License.
 
 #include "types.h"
+#include <cmath>
 
 using namespace vortex;
 
@@ -206,6 +207,89 @@ void LsuMemAdapter::tick() {
     // Pop only when all required lanes have been sent
     if (pending_mask_.none()) {
       ReqIn.pop();
+    }
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+RtuMemAdapter::RtuMemAdapter(
+  const SimContext& ctx,
+  const char* name,
+  uint32_t num_inputs,
+  uint32_t delay
+) : SimObject<RtuMemAdapter>(ctx, name)
+  , ReqIn(this)
+  , RspOut(this)
+  , ReqOut(num_inputs, this)
+  , RspIn(num_inputs, this)
+  , delay_(delay)
+  , chunks_sent_(0)
+{
+  assert(num_inputs > 0);
+  if (num_inputs == 1) {
+    // bypass mode
+    ReqIn.bind(&ReqOut.at(0), [](const RtuReq& req) {
+      return MemReq{req.addr, req.write, AddrType::Global, req.tag, req.cid, req.uuid};
+    });
+    RspIn.at(0).bind(&RspOut, [](const MemRsp& rsp) {
+      RtuRsp rtuRsp;
+      rtuRsp.tag = rsp.tag;
+      rtuRsp.cid = rsp.cid;
+      rtuRsp.uuid = rsp.uuid;
+      return rtuRsp;
+    });
+  }
+}
+
+void RtuMemAdapter::reset() {}
+
+void RtuMemAdapter::tick() {
+  uint32_t num_channels = ReqOut.size();
+  if (num_channels == 1) return;
+
+  for (uint32_t i = 0; i < RspIn.size(); ++i) {
+    if (!RspIn.at(i).empty()) {
+      auto& mem_rsp = RspIn.at(i).peek();
+      
+      RtuRsp out_rsp;
+      out_rsp.tag  = mem_rsp.tag;
+      out_rsp.cid  = mem_rsp.cid;
+      out_rsp.uuid = mem_rsp.uuid;
+
+      if (RspOut.try_send(out_rsp, 1)) {
+        RspIn.at(i).pop();
+        break;
+      }
+    }
+  }
+
+  if (!ReqIn.empty()) {
+    auto& in_req = ReqIn.peek();
+    
+    uint32_t num_chunks = 1; //std::ceil(in_req.size / (float)(DCACHE_WORD_SIZE));
+    
+    if (chunks_sent_ < num_chunks) {
+      uint64_t current_addr = in_req.addr;// + (chunks_sent_ * DCACHE_WORD_SIZE);
+      uint32_t channel = 0;//(current_addr >> 6) % ReqOut.size();
+
+      MemReq out_req;
+      out_req.write = in_req.write;
+      out_req.addr  = current_addr;
+      out_req.type  = get_addr_type(current_addr);
+      out_req.tag   = in_req.tag;
+      out_req.cid   = in_req.cid;
+      out_req.uuid  = in_req.uuid;
+
+      if (ReqOut.at(channel).try_send(out_req, delay_)) {
+        chunks_sent_++;
+        //DT(4, "RTU-Adapter: Sent chunk " << chunks_sent_ << " to channel " << channel);
+      }
+    }
+
+    if (chunks_sent_ >= num_chunks) {
+      ReqIn.pop();
+      chunks_sent_ = 0;
     }
   }
 }
