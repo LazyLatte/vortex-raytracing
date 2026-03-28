@@ -23,13 +23,13 @@ struct AABB {
 
   float area() const {
     float3_t e = bmax - bmin; // box extent
-    return e.x * e.y + e.y * e.z + e.z * e.x;
+    return 2.0 * (e.x * e.y + e.y * e.z + e.z * e.x);
   }
 };
 
 struct Split{
   uint32_t axis, pos;
-  float cost =  std::numeric_limits<float>::infinity();
+  float cost = std::numeric_limits<float>::infinity();
 };
 
 // bounding volume hierarchy, to be used as BLAS
@@ -56,6 +56,7 @@ private:
   void updateNodeBounds(bvh_node_t &node) const;
   uint32_t partitionTriangles(const bvh_node_t &node, const Split &split) const;
   Split findBestSplitPlane(const bvh_node_t &node) const;
+  void linearizeData();
   void quantize();
 
   uint32_t triCount_ = 0;        // number of triangles

@@ -39,9 +39,6 @@ ray_t GenerateRay(uint32_t x, uint32_t y, const kernel_arg_t *__UNIFORM__ arg) {
 // }
 
 void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
-  //vx_printf("*** tile: %d\n", *producers_finished);
-  auto sbt = reinterpret_cast<uint64_t *>(arg->sbt_addr);
-
   bool *local_done = (bool*)__local_mem(sizeof(bool));
   *local_done = 0;
   
@@ -49,20 +46,20 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
 
   if(vx_warp_id() % 2 == 0){
     // Producer
-    ray_payload_t payloads[2];
-    payloads[0].done = true;
-    payloads[1].done = true;
+    
     uint32_t tid = vx_thread_id();
-    for (uint32_t i = tid; i < PIXELS_PER_TILE; i += THREADS_PER_WARP) {
-      uint32_t tx = i % BLOCK_SIZE;
-      uint32_t ty = i / BLOCK_SIZE;
+
+    ray_payload_t payloads[2];
+    
+    for (uint32_t thread_idx=tid, i=0; i<2; thread_idx+=THREADS_PER_WARP, i++) {
+      uint32_t tx = thread_idx % BLOCK_SIZE;
+      uint32_t ty = thread_idx / BLOCK_SIZE;
       uint32_t x = blockIdx.x * BLOCK_SIZE + tx;
       uint32_t y = blockIdx.y * BLOCK_SIZE + ty;
       
       if (x < arg->dst_width && y < arg->dst_height){
-        //float3_t color = float3_t(0, 0, 0);
-        
-        payloads[i/THREADS_PER_WARP].done = false;
+
+        payloads[i].done = false;
 
         for (uint32_t s = 0; s < arg->samples_per_pixel; ++s) {
           auto ray = GenerateRay(x, y, arg);
@@ -71,43 +68,38 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
           vortex::rt::traceRay(
             ray.orig.x, ray.orig.y, ray.orig.z, 
             ray.dir.x, ray.dir.y, ray.dir.z, 
-            (uint32_t)(&payloads[i/THREADS_PER_WARP]), 
+            (uint32_t)(&payloads[i]), 
             rayID
           );
-          
-          //color += payload.color;
         }
+      }else{
+        payloads[i].done = true;
       }
     }
 
     // Poll
-    while(!vx_vote_all(payloads[0].done && payloads[1].done));
-    // {
-    //   uint32_t ret = vortex::rt::getWork();
-    //   if (ret != 0) {
-    //     uint32_t type = __builtin_ctz(ret >> 28);
-    //     uint32_t id = ret & 0x0FFFFFFF;
-    //     auto shader = (shader_t)(sbt[type]);
-    //     shader(id, arg);
-    //   }
-    // }
+    while(!vx_vote_all(payloads[0].done));
+    while(!vx_vote_all(payloads[1].done));
     
     // Writing back colors
     auto out_ptr = reinterpret_cast<uint32_t *>(arg->dst_addr);
 
-    for (uint32_t i = tid; i < PIXELS_PER_TILE; i += THREADS_PER_WARP) {
-      uint32_t tx = i % BLOCK_SIZE;
-      uint32_t ty = i / BLOCK_SIZE;
+    for (uint32_t thread_idx=tid, i=0; i<2; thread_idx+=THREADS_PER_WARP, i++) {
+      uint32_t tx = thread_idx % BLOCK_SIZE;
+      uint32_t ty = thread_idx / BLOCK_SIZE;
       uint32_t x = blockIdx.x * BLOCK_SIZE + tx;
       uint32_t y = blockIdx.y * BLOCK_SIZE + ty;
       if (x < arg->dst_width && y < arg->dst_height) {
         //vx_printf("(%d, %d)\n", y, x);
-        out_ptr[x + y * arg->dst_width] = RGB32FtoRGB8(payloads[i/THREADS_PER_WARP].color);
+        out_ptr[x + y * arg->dst_width] = RGB32FtoRGB8(payloads[i].color);
       }
     }
     *local_done = 1;
   }else{
     // Consumer
+    
+    auto sbt = reinterpret_cast<uint64_t *>(arg->sbt_addr);
+
     while (*local_done == 0) {
       uint32_t ret = vortex::rt::getWork();
       if (ret != 0) {

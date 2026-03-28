@@ -17,15 +17,11 @@ BVH::BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t *bvh
   triIndices_ = triIndices;
   triEx_ = triEx;
   tri_offset_ = tri_offset;
-  std::cout << "Start build" <<std::endl;
   this->build();
   //visualize(bvhNodes_);
-  this->quantize();
 }
 
-BVH::~BVH() {
-  //--
-}
+BVH::~BVH() {}
 
 void BVH::build() {
   // Recursive build staring at the root node
@@ -33,6 +29,9 @@ void BVH::build() {
   root.leftFirst = 0;
   root.triCount = triCount_;
   this->subdivide(root);
+  std::cout << "BVH Built ... (#node=" << nodeCount_ << ")" << std::endl;
+  this->linearizeData();
+  this->quantize();  
 }
 
 void BVH::subdivide(bvh_node_t &node) {
@@ -50,8 +49,8 @@ void BVH::subdivide(bvh_node_t &node) {
     Split bestSplit{};
     float bestDelta = 0.0f;
     int bestIdx = -1;
-    //std::cout << "test 1" << std::endl;
-    for (int i = 0; i < clusters.size(); ++i) {
+
+    for (int i = 0; i < clusters.size(); i++) {
       auto& c = clusters[i];
       if (c.triCount <= 1) continue;
       
@@ -67,13 +66,12 @@ void BVH::subdivide(bvh_node_t &node) {
         bestIdx = i;
       }
     }
-    //std::cout << "test 2" << std::endl;
+
     if(bestIdx < 0) break;  //No improving split
 
     uint32_t leftCount = partitionTriangles(clusters[bestIdx], bestSplit);
     uint32_t rightCount = clusters[bestIdx].triCount - leftCount;
-    //if(leftCount == 0 || rightCount == 0) break;
-    //std::cout << leftCount << " " << rightCount << std::endl;
+
     assert(leftCount != 0 && rightCount != 0);
 
     bvh_node_t L, R;
@@ -87,7 +85,7 @@ void BVH::subdivide(bvh_node_t &node) {
   }
 
   if(clusters.size() == 1){
-    //std::cout << "Leaf TriCount > 1" << std::endl;
+    // Leaf with triCount > 1
     return;
   }
 
@@ -110,32 +108,27 @@ void BVH::subdivide(bvh_node_t &node) {
 
 uint32_t BVH::partitionTriangles(const bvh_node_t &node, const Split &split) const {
   float scale = BINS / (node.centroidMax[split.axis] - node.centroidMin[split.axis]);
-  //uint32_t *triPtr = triIndices_ + node.leftFirst;
+  uint32_t *triPtr = triIndices_ + node.leftFirst;
 
   uint32_t i = 0;
   uint32_t j = node.triCount - 1;
 
   while (i <= j) {
-    //uint32_t triIdx = triPtr[i];
-    auto &centroid = centroids_[node.leftFirst + i];
+    uint32_t triIdx = triPtr[i];
+    auto &centroid = centroids_[triIdx];
     uint32_t bin = clamp(int((centroid[split.axis] - node.centroidMin[split.axis]) * scale), 0, BINS - 1);
     if (bin < split.pos) {
       i++;
     } else {
-      //std::swap(triPtr[i], triPtr[j--]);
-      std::swap(triData_[node.leftFirst + i], triData_[node.leftFirst + j]);
-      std::swap(triEx_[node.leftFirst + i], triEx_[node.leftFirst + j]);
-      std::swap(centroids_[node.leftFirst + i], centroids_[node.leftFirst + j]);
-      j--;
+      std::swap(triPtr[i], triPtr[j--]);
     }
   }
+  
   return i;
 }
 
 Split BVH::findBestSplitPlane(const bvh_node_t &node) const {
-
   Split bestSplit;
-
   for (uint32_t a = 0; a < 3; a++) {
     float boundsMin = node.centroidMin[a], boundsMax = node.centroidMax[a];
     if (boundsMin == boundsMax)
@@ -152,9 +145,9 @@ Split BVH::findBestSplitPlane(const bvh_node_t &node) const {
     } bin[BINS];
 
     for (uint32_t i = 0; i < node.triCount; i++) {
-      // triIdx = triIndices_[node.leftFirst + i];
-      auto &triangle = triData_[node.leftFirst + i];
-      auto &centroid = centroids_[node.leftFirst + i];
+      uint32_t triIdx = triIndices_[node.leftFirst + i];
+      auto &triangle = triData_[triIdx];
+      auto &centroid = centroids_[triIdx];
       int binIdx = (int)((centroid[a] - boundsMin) * scale);
       binIdx = std::max(0, std::min((int)BINS - 1, binIdx));
 
@@ -177,7 +170,6 @@ Split BVH::findBestSplitPlane(const bvh_node_t &node) const {
     }
 
     // calculate SAH cost for the 7 planes
-    scale = (boundsMax - boundsMin) / BINS;
     for (int i = 0; i < BINS - 1; i++) {
       const float planeCost = leftCountArea[i] + rightCountArea[i];
       if (planeCost < bestSplit.cost) {
@@ -196,15 +188,15 @@ void BVH::updateNodeBounds(bvh_node_t &node) const {
   auto centroid_min = float3_t(LARGE_FLOAT);
   auto centroid_max = float3_t(-LARGE_FLOAT);
   for (uint32_t first = node.leftFirst, i = 0; i < node.triCount; i++) {
-    //uint32_t triIdx = triIndices_[first + i];
-    auto &tri = triData_[first + i];
+    uint32_t triIdx = triIndices_[first + i];
+    auto &tri = triData_[triIdx];
     node.aabbMin = fminf(node.aabbMin, tri.v0);
     node.aabbMin = fminf(node.aabbMin, tri.v1);
     node.aabbMin = fminf(node.aabbMin, tri.v2);
     node.aabbMax = fmaxf(node.aabbMax, tri.v0);
     node.aabbMax = fmaxf(node.aabbMax, tri.v1);
     node.aabbMax = fmaxf(node.aabbMax, tri.v2);
-    auto &centroid = centroids_[first + i];
+    auto &centroid = centroids_[triIdx];
     centroid_min = fminf(centroid_min, centroid);
     centroid_max = fmaxf(centroid_max, centroid);
   }
@@ -212,8 +204,24 @@ void BVH::updateNodeBounds(bvh_node_t &node) const {
   node.centroidMax = centroid_max;
 }
 
+void BVH::linearizeData() {
+  std::vector<tri_t> sortedTriData(triCount_);
+  std::vector<tri_ex_t> sortedTriEx(triCount_);
+  std::vector<float3_t> sortedCentroids(triCount_);
+
+  for (uint32_t i = 0; i < triCount_; i++) {
+      uint32_t triIdx = triIndices_[i];
+      sortedTriData[i] = triData_[triIdx];
+      sortedTriEx[i] = triEx_[triIdx];
+      sortedCentroids[i] = centroids_[triIdx];
+  }
+
+  std::copy(sortedTriData.begin(), sortedTriData.end(), triData_);
+  std::copy(sortedTriEx.begin(), sortedTriEx.end(), triEx_);
+  std::copy(sortedCentroids.begin(), sortedCentroids.end(), centroids_);
+}
+
 void BVH::quantize(){
-  std::cout << "BVH Quantization starts ... " << std::endl;
   for(int i=0; i<nodeCount_; i++){
     bvh_node_t node = bvhNodes_[i];
     bvh_quantized_node_t &qNode = bvhQNodes_[i];
@@ -254,13 +262,9 @@ void BVH::quantize(){
         qNode.children[k] = qChild;
       }
     }else{
-      // if(node.triCount > 1){
-      //   std::cout << node.triCount << std::endl;
-      // }
       qNode.leftFirst += tri_offset_;
     }
   }
-  std::cout << "BVH Quantization ends ... (#node=" << nodeCount_ << ")" << std::endl;
 }
 
 // TLAS implementation
