@@ -33,20 +33,13 @@ void _start(uint32_t rayID, kernel_arg_t *arg){
   float3_t ray_orig = make_float3(ro_x, ro_y, ro_z);
   float3_t ray_dir = make_float3(rd_x, rd_y, rd_z);
 
-  uint32_t d = vortex::rt::getAttr(rayID, VX_RT_HIT_DIST);
-  float dist = *reinterpret_cast<float*>(&d);
+  float t  = payload->t;
+  float bx = payload->u;
+  float by = payload->v;
+  float bz = 1 - bx - by;
 
-  uint32_t bx = vortex::rt::getAttr(rayID, VX_RT_HIT_BX);
-  uint32_t by = vortex::rt::getAttr(rayID, VX_RT_HIT_BY);
-  uint32_t bz = vortex::rt::getAttr(rayID, VX_RT_HIT_BZ);
-  uint32_t blas_idx = vortex::rt::getAttr(rayID, VX_RT_HIT_BLAS_IDX);
-  uint32_t tri_idx = vortex::rt::getAttr(rayID, VX_RT_HIT_TRI_IDX);
-
-  float3_t bcoords = make_float3(
-    *reinterpret_cast<float*>(&bx),
-    *reinterpret_cast<float*>(&by),
-    *reinterpret_cast<float*>(&bz)
-  );
+  uint32_t blas_idx = payload->blas_idx;
+  uint32_t tri_idx = payload->tri_idx;
 
   // fetch instance & per-triangle data
   auto &blas = blas_ptr[blas_idx];
@@ -54,15 +47,15 @@ void _start(uint32_t rayID, kernel_arg_t *arg){
   const material_info_t &mat = mat_ptr[triEx.texId];
 
   // intersection point
-  float3_t I = ray_orig + ray_dir * dist;
+  float3_t I = ray_orig + ray_dir * t;
 
   // interpolated, transformed normal
-  float3_t N = triEx.N1 * bcoords.x + triEx.N2 * bcoords.y + triEx.N0 * bcoords.z;
+  float3_t N = triEx.N1 * bx + triEx.N2 * by + triEx.N0 * bz;
   mat4_t invTranspose = blas.invTransform.transposed();
   N = normalize(TransformVector(N, invTranspose));
 
   // barycentric UV
-  float2_t uv = triEx.uv1 * bcoords.x + triEx.uv2 * bcoords.y + triEx.uv0 * bcoords.z;
+  float2_t uv = triEx.uv1 * bx + triEx.uv2 * by + triEx.uv0 * bz;
 
   float3_t texColor;
   if (mat.diffuse_tex_id >= 0) {

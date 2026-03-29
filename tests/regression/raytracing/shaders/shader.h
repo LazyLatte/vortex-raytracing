@@ -6,10 +6,16 @@
 typedef void (*shader_t)(uint32_t rayID, kernel_arg_t *arg);
 
 struct ray_payload_t {
-    float3_t color=make_float3(1.0, 0.0, 0.0); // For Debugging: Output image should not have red pixels
-    uint32_t flag;
-    uint32_t bounce = 0;
-    volatile bool done;
+  // Hit Data
+  float t, u, v;
+  uint32_t blas_idx;
+  uint32_t tri_idx;
+
+  uint32_t flag;
+  uint32_t bounce = 0;
+  float3_t color = {1.0, 0.0, 0.0}; // For Debugging: Output image should not have red pixels
+
+  volatile bool done;
 };
 
 float3_t texSample(const float2_t &uv, const uint32_t *pixels, uint32_t width, uint32_t height) {

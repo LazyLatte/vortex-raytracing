@@ -3,7 +3,6 @@
 #include "rt_sim.h"
 #include "core.h"
 #include <cassert>
-#define SHADER_QUEUE_CAPACITY 1024
 
 using namespace vortex;
 
@@ -53,6 +52,7 @@ public:
             if(rayID == 0x10000000) rayID = 1;
             rays_[rayID] = Ray();
             hits_[rayID] = Hit();
+            best_hits_[rayID] = Hit();
             payload_addrs_[rayID] = 0;
             traversal_trails_[rayID] = {};
             traversal_stacks_[rayID] = TraversalStack();
@@ -101,13 +101,15 @@ public:
         bool completed = bvh_traverser_.traverse(
             rays_[rayID], 
             hits_[rayID],
+            best_hits_[rayID],
             traversal_trails_[rayID],
             traversal_stacks_[rayID],
             thread_info
         );
         
         if(completed){
-            if(hits_[rayID].dist == LARGE_FLOAT){
+            dcache_write(&best_hits_[rayID], payload_addrs_[rayID], sizeof(Hit));
+            if(best_hits_[rayID].t == LARGE_FLOAT){
                 shader_queues[ShaderType::MISS].push(rayID);
             }else{
                 shader_queues[ShaderType::CLOSET].push(rayID);
@@ -177,10 +179,9 @@ public:
                 case VX_RT_RAY_RD_Z: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].rd_z); break;
                 case VX_RT_RAY_PAYLOAD_ADDR: rd_data[tid].u32 = payload_addrs_[rayID]; break;
 
-                case VX_RT_HIT_DIST: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hits_[rayID].dist); break;
-                case VX_RT_HIT_BX: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hits_[rayID].bx); break;
-                case VX_RT_HIT_BY: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hits_[rayID].by); break;
-                case VX_RT_HIT_BZ: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hits_[rayID].bz); break;
+                case VX_RT_HIT_T: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hits_[rayID].t); break;
+                case VX_RT_HIT_U: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hits_[rayID].u); break;
+                case VX_RT_HIT_V: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hits_[rayID].v); break;
                 case VX_RT_HIT_BLAS_IDX: rd_data[tid].u32 = hits_[rayID].blasIdx; break;
                 case VX_RT_HIT_TRI_IDX: rd_data[tid].u32 = hits_[rayID].triIdx; break;
 
@@ -199,12 +200,13 @@ public:
                     traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                     break;
                 case VX_RT_COMMIT_ACCEPT: 
-                    hits_[rayID].dist = hits_[rayID].pending_dist;
+                    best_hits_[rayID] = hits_[rayID];
                     traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                     break;
                 case VX_RT_COMMIT_TERM: 
                     rays_.erase(rayID);
                     hits_.erase(rayID);
+                    best_hits_.erase(rayID);
                     payload_addrs_.erase(rayID);
                     traversal_trails_.erase(rayID);
                     traversal_stacks_.erase(rayID);
@@ -230,10 +232,11 @@ private:
     uint32_t cur_rayid_; // 0 as the invalid ray
     std::unordered_map<uint32_t, Ray> rays_;
     std::unordered_map<uint32_t, Hit> hits_;
+    std::unordered_map<uint32_t, Hit> best_hits_;
     std::unordered_map<uint32_t, TraversalTrail> traversal_trails_;
     std::unordered_map<uint32_t, TraversalStack> traversal_stacks_;
     std::unordered_map<uint32_t, uint32_t> payload_addrs_;
-    std::array<ShaderQueue<SHADER_QUEUE_CAPACITY, NUM_RTU_LANES>, ShaderTypes> shader_queues;
+    std::array<ShaderQueue<RT_SHADER_QUEUE_CAPACITY, NUM_RTU_LANES>, ShaderTypes> shader_queues;
 };
 
 RTUnit::RTUnit(const SimContext &ctx, const char* name, const Arch &arch, const DCRS &dcrs, Core* core)

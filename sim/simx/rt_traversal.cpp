@@ -25,7 +25,8 @@ BVHTraverser::BVHTraverser(RTUnit* rt_unit, const DCRS &dcrs): rt_unit_(rt_unit)
 
 bool BVHTraverser::traverse(
     const Ray& ray, 
-    Hit& hit, 
+    Hit& hit,
+    Hit& best_hit,
     TraversalTrail& trail, 
     TraversalStack& stack,
     per_thread_info &thread_info
@@ -51,7 +52,7 @@ bool BVHTraverser::traverse(
     while(!exit){
 
         read_node(&node, node_ptr);
-        thread_info.RT_mem_accesses.emplace_back(node_ptr, sizeof(BVHNode),TransactionType::BVH_INTERNAL_NODE);
+        thread_info.RT_mem_accesses.emplace_back(node_ptr, sizeof(BVHNode), TransactionType::BVH_INTERNAL_NODE);
 
         if(!isLeaf(&node)){
             std::vector<ChildIntersection> intersections;
@@ -68,7 +69,7 @@ bool BVHTraverser::traverse(
 
                 float d = ray_box_intersect(isTopLevel(&node) ? ray : cur_ray, min_x, min_y, min_z, max_x, max_y, max_z);
 
-                if(d < hit.dist){
+                if(d < best_hit.t){
                     intersections.emplace_back(d, i);
                 }
             }
@@ -113,7 +114,7 @@ bool BVHTraverser::traverse(
                 
                 BLASNode blas_node;
                 dcache_read(&blas_node, blas_node_ptr, sizeof(BLASNode));
-                thread_info.RT_mem_accesses.emplace_back(blas_node_ptr, sizeof(BLASNode),TransactionType::BVH_INSTANCE_LEAF);
+                thread_info.RT_mem_accesses.emplace_back(blas_node_ptr, sizeof(BLASNode), TransactionType::BVH_INSTANCE_LEAF);
 
                 cur_ray = ray_transform(ray, blas_node.invTransform);
 
@@ -124,28 +125,23 @@ bool BVHTraverser::traverse(
                 uint32_t leftFirst = node.leftFirst;
 
                 for (uint32_t i = 0; i < triCount; ++i) {
-                    uint32_t triIdx = leftFirst + i;
-                    //dcache_read(&triIdx, tri_idx_ptr + (leftFirst + i) * sizeof(uint32_t), sizeof(uint32_t));
-                    
+                    uint32_t triIdx = leftFirst + i;                    
                     uint32_t tri_addr = tri_ptr + triIdx * sizeof(Triangle);
 
                     Triangle tri;
                     dcache_read(&tri, tri_addr, sizeof(Triangle));
                     
+                    float u, v;
+                    float t = ray_tri_intersect(cur_ray, tri, u, v);
 
-                    float bx, by, bz;
-                    float d = ray_tri_intersect(cur_ray, tri, bx, by, bz);
-
-                    if (d < hit.dist) {
-                        hit.pending_dist = d;
-                        //hit.dist = d;
-                        hit.bx = bx;
-                        hit.by = by;
-                        hit.bz = bz;
+                    if (t < best_hit.t) {
+                        hit.t = t;
+                        hit.u = u;
+                        hit.v = v;
                         hit.blasIdx = blasIdx;
                         hit.triIdx = triIdx;
                         
-                        thread_info.RT_mem_accesses.emplace_back(tri_addr, sizeof(Triangle),TransactionType::BVH_QUAD_LEAF_HIT);
+                        thread_info.RT_mem_accesses.emplace_back(tri_addr, sizeof(Triangle), TransactionType::BVH_QUAD_LEAF_HIT);
 
                         //-------clear stack for now to ensure correctness--------
                         while(!stack.empty()){
@@ -155,7 +151,7 @@ bool BVHTraverser::traverse(
                         
                         return false;
                     }else{
-                        thread_info.RT_mem_accesses.emplace_back(tri_addr, sizeof(Triangle),TransactionType::BVH_QUAD_LEAF);
+                        thread_info.RT_mem_accesses.emplace_back(tri_addr, sizeof(Triangle), TransactionType::BVH_QUAD_LEAF);
                     }
                 }
 
@@ -228,6 +224,10 @@ void BVHTraverser::dcache_read(void* data, uint64_t addr, uint32_t size) {
     rt_unit_->dcache_read(data, addr, size);
 }
 
+void BVHTraverser::dcache_write(const void* data, uint64_t addr, uint32_t size){
+    rt_unit_->dcache_write(data, addr, size);
+}
+
 Ray BVHTraverser::ray_transform(const Ray &ray, float *transform_matrix){
     float m00 = transform_matrix[0];
     float m01 = transform_matrix[1];
@@ -260,7 +260,7 @@ Ray BVHTraverser::ray_transform(const Ray &ray, float *transform_matrix){
     return transformed_ray;
 }
 
-float BVHTraverser::ray_tri_intersect(const Ray &ray, const Triangle &tri, float &bx, float &by, float &bz){
+float BVHTraverser::ray_tri_intersect(const Ray &ray, const Triangle &tri, float &u, float &v){
     float v0_x = tri.v0_x, v0_y = tri.v0_y, v0_z = tri.v0_z;
     float v1_x = tri.v1_x, v1_y = tri.v1_y, v1_z = tri.v1_z;
     float v2_x = tri.v2_x, v2_y = tri.v2_y, v2_z = tri.v2_z;
@@ -309,9 +309,8 @@ float BVHTraverser::ray_tri_intersect(const Ray &ray, const Triangle &tri, float
         return LARGE_FLOAT;
     }
 
-    bx = w1;
-    by = w2;
-    bz = 1 - w1 - w2;
+    u = w1;
+    v = w2;
     return tf;
 }
 
