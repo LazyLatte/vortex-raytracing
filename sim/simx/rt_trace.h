@@ -28,37 +28,36 @@ enum RTMemStatus {
 };
 
 enum class TransactionType {
-    BVH_STRUCTURE,
-    BVH_INTERNAL_NODE,
-    BVH_INSTANCE_LEAF,
-    BVH_PRIMITIVE_LEAF_DESCRIPTOR,
-    BVH_QUAD_LEAF,
-    BVH_QUAD_LEAF_HIT,
-    BVH_PROCEDURAL_LEAF,
-    Intersection_Table_Load,
-    UNDEFINED,
+  BVH_STRUCTURE,
+  BVH_INTERNAL_NODE,
+  BVH_INSTANCE_LEAF,
+  BVH_PRIMITIVE_LEAF_DESCRIPTOR,
+  BVH_QUAD_LEAF,
+  BVH_QUAD_LEAF_HIT,
+  BVH_PROCEDURAL_LEAF,
+  INTERSECTION_TABLE_LOAD,
+  UNDEFINED,
 };
 
-enum class StoreTransactionType {Intersection_Table_Store, Traversal_Results};
+enum class StoreTransactionType {TRAVERSAL_RESULTS/*, INTERSECTION_TABLE_STORE*/};
 
 struct RTMemoryTransactionRecord {
-    uint32_t addr;
-    uint32_t size;
-    TransactionType type;
-    RTMemStatus status;
-    RTMemoryTransactionRecord(){}
-    RTMemoryTransactionRecord(uint32_t addr, uint32_t size, TransactionType type)
-    : addr(addr), size(size), type(type), status(RT_MEM_UNMARKED){}
+  uint32_t addr;
+  uint32_t size;
+  TransactionType type;
+  RTMemStatus status;
+  RTMemoryTransactionRecord(){}
+  RTMemoryTransactionRecord(uint32_t addr, uint32_t size, TransactionType type)
+  : addr(addr), size(size), type(type), status(RT_MEM_UNMARKED){}
 };
 
 struct MemoryStoreTransactionRecord {
-    void* address;
-    uint32_t size;
-    StoreTransactionType type;
+  uint32_t addr;
+  uint32_t size;
+  StoreTransactionType type;
 
-    MemoryStoreTransactionRecord(void* address, uint32_t size, StoreTransactionType type)
-    : address(address), size(size), type(type) {}
-
+  MemoryStoreTransactionRecord(uint32_t addr, uint32_t size, StoreTransactionType type)
+  : addr(addr), size(size), type(type) {}
 };
 
 struct per_thread_info {
@@ -69,7 +68,6 @@ struct per_thread_info {
   std::deque<RTMemoryTransactionRecord> RT_mem_accesses;
   std::vector<MemoryStoreTransactionRecord> RT_store_transactions;
   bool ray_intersect = false;
-  //Ray ray_properties;
   unsigned intersection_delay;
   unsigned status_num_cycles[warp_statuses][ray_statuses] = {};
 
@@ -84,7 +82,7 @@ struct RtuTraceData : public ITraceData {
   std::vector<per_thread_info> m_per_scalar_thread;
 
   std::deque<RTMemoryTransactionRecord> m_next_rt_accesses;
-  std::set<std::pair<uint32_t, uint32_t> > m_next_rt_accesses_set;
+  std::set<std::pair<uint32_t, uint32_t>> m_next_rt_accesses_set;
   std::set<uint32_t> m_pending_writes;
   bool invalid;
   RtuTraceData(uint32_t num_threads = 0) : m_per_scalar_thread(num_threads), invalid(false) {}
@@ -166,7 +164,7 @@ struct RtuTraceData : public ITraceData {
   //   //RT_DPRINTF("UNDO: 0x%x added back to queue\n", addr);
   // }
 
-  unsigned dec_thread_latency(std::deque<std::pair<uint32_t, uint32_t> > &store_queue) { 
+  unsigned dec_thread_latency(instr_trace_t* trace, std::deque<std::pair<instr_trace_t*, MemoryStoreTransactionRecord>> &store_queue) { 
     // Track number of threads performing intersection tests
     unsigned n_threads = 0;
     
@@ -174,6 +172,15 @@ struct RtuTraceData : public ITraceData {
       if (m_per_scalar_thread[i].intersection_delay > 0) {
         m_per_scalar_thread[i].intersection_delay--; 
         n_threads++;
+        if(m_per_scalar_thread[i].intersection_delay == 0 && m_per_scalar_thread[i].RT_mem_accesses.empty()){
+          for(auto & store_transaction : m_per_scalar_thread[i].RT_store_transactions) {
+            store_queue.push_back(std::pair<instr_trace_t*, MemoryStoreTransactionRecord>(trace, store_transaction));
+            // assert(m_pending_writes.find((new_addr_type)store_transaction.address) == m_pending_writes.end());
+            // m_pending_writes.insert((new_addr_type)store_transaction.address);
+          }
+          m_per_scalar_thread[i].RT_store_transactions.clear();
+        }
+
         if (m_per_scalar_thread[i].intersection_delay == 0 && m_per_scalar_thread[i].ray_intersect) {
           // Temporary size
           // unsigned size = RT_WRITE_BACK_SIZE;
@@ -186,15 +193,6 @@ struct RtuTraceData : public ITraceData {
 
           // m_pending_writes.insert((uint32_t)next_buffer_addr);
         }
-        
-        // for(auto & store_transaction : m_per_scalar_thread[i].RT_store_transactions) {
-        //   store_queue.push_back(std::pair<uint32_t, uint32_t>(m_uid, (new_addr_type)(store_transaction.address)));
-        //   RT_DPRINTF("Buffer store pushed for warp %d thread %d at 0x%x\n", m_uid, i, store_transaction.address);
-
-        //   assert(m_pending_writes.find((new_addr_type)store_transaction.address) == m_pending_writes.end());
-        //   m_pending_writes.insert((new_addr_type)store_transaction.address);
-        // }
-        // m_per_scalar_thread[i].RT_store_transactions.clear();
       }
     }
     
@@ -229,7 +227,7 @@ struct RtuTraceData : public ITraceData {
           {TransactionType::BVH_QUAD_LEAF, 16},
           {TransactionType::BVH_QUAD_LEAF_HIT, 16},
           {TransactionType::BVH_PROCEDURAL_LEAF, 1},
-          {TransactionType::Intersection_Table_Load, 1}
+          {TransactionType::INTERSECTION_TABLE_LOAD, 1}
         };
 
         unsigned n_delay_cycles = transaction_type_latencies[mem_record.type];

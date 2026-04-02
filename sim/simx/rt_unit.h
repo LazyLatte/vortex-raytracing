@@ -22,6 +22,7 @@ public:
         // double rt_total_warp_occupancy;
         unsigned rt_total_warps;
         unsigned rt_latency_counter;
+        std::vector<unsigned> rt_warp_latencies;
         unsigned long long rt_latency_dist[warp_statuses][ray_statuses] = {};
 
         PerfStats()

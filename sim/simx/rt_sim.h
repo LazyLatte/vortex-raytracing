@@ -16,15 +16,14 @@ public:
 	void tick();
 	const RTUnit::PerfStats& perf_stats() const { return perf_stats_; }
 private:
-	void process_memory_request();
-	void process_memory_response();
+	bool process_memory_request();
+	bool process_memory_response();
 	void process_memory_response(instr_trace_t *rsp_trace, uint32_t rsp_addr);
-	void process_intersection_delay();
+	bool process_intersection_delay();
 	void schedule_warp();
 	void add_warp();
 	void remove_warp(instr_trace_t *target_trace);
 	void check_completion();
-	void cycle();
 
     RTUnit*  simobject_;
 
@@ -38,7 +37,7 @@ private:
 
 	HashTable<pending_req_t> pending_reqs_;
 
-	std::deque<std::pair<uint32_t, uint32_t>> mem_store_q;
+	std::deque<std::pair<instr_trace_t*, MemoryStoreTransactionRecord>> mem_store_q;
 	std::unordered_map<instr_trace_t*, unsigned long long> warp_latencies_;
 	std::unordered_map<instr_trace_t*, uint32_t> warp_iws_;
 	std::queue<MemReq> mem_req_q;
