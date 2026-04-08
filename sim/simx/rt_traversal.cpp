@@ -5,9 +5,6 @@
 #include <cmath> 
 
 #define EPSILON 1e-6f
-// #define RAY_TRANSFORM_LATENCY 6
-// #define RAY_BOX_INTERSECTION_LATENCY 24
-// #define RAY_TRI_INTERSECTION_LATENCY 16
 
 using namespace vortex;
 
@@ -52,7 +49,7 @@ bool BVHTraverser::traverse(
     while(!exit){
 
         read_node(&node, node_ptr);
-        thread_info.RT_mem_accesses.emplace_back(node_ptr, sizeof(BVHNode), TransactionType::BVH_INTERNAL_NODE);
+        thread_info.RT_mem_accesses.emplace_back(node_ptr, 64 /*sizeof(BVHNode)*/, TransactionType::BVH_INTERNAL_NODE);
 
         if(!isLeaf(&node)){
             std::vector<ChildIntersection> intersections;
@@ -114,7 +111,7 @@ bool BVHTraverser::traverse(
                 
                 BLASNode blas_node;
                 dcache_read(&blas_node, blas_node_ptr, sizeof(BLASNode));
-                thread_info.RT_mem_accesses.emplace_back(blas_node_ptr, sizeof(BLASNode), TransactionType::BVH_INSTANCE_LEAF);
+                thread_info.RT_mem_accesses.emplace_back(blas_node_ptr, 128 /*sizeof(BLASNode)*/, TransactionType::BVH_INSTANCE_LEAF);
 
                 cur_ray = ray_transform(ray, blas_node.invTransform);
 
@@ -135,13 +132,14 @@ bool BVHTraverser::traverse(
                     float t = ray_tri_intersect(cur_ray, tri, u, v);
 
                     if (t < best_hit.t) {
+                        thread_info.RT_mem_accesses.emplace_back(tri_addr, 64 /*sizeof(Triangle)*/, TransactionType::BVH_QUAD_LEAF_HIT);
+
+                    #ifdef RT_SHADER_ANYHIT_ENABLE
                         hit.t = t;
                         hit.u = u;
                         hit.v = v;
                         hit.blasIdx = blasIdx;
                         hit.triIdx = triIdx;
-                        
-                        thread_info.RT_mem_accesses.emplace_back(tri_addr, sizeof(Triangle), TransactionType::BVH_QUAD_LEAF_HIT);
 
                         //-------clear stack for now to ensure correctness--------
                         while(!stack.empty()){
@@ -150,8 +148,15 @@ bool BVHTraverser::traverse(
                         //--------------------------------------------------------
                         
                         return false;
+                    #else
+                        best_hit.t = t;
+                        best_hit.u = u;
+                        best_hit.v = v;
+                        best_hit.blasIdx = blasIdx;
+                        best_hit.triIdx = triIdx;
+                    #endif
                     }else{
-                        thread_info.RT_mem_accesses.emplace_back(tri_addr, sizeof(Triangle), TransactionType::BVH_QUAD_LEAF);
+                        thread_info.RT_mem_accesses.emplace_back(tri_addr, 64 /*sizeof(Triangle)*/, TransactionType::BVH_QUAD_LEAF);
                     }
                 }
 

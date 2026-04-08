@@ -109,7 +109,7 @@ public:
         
         if(completed){
             dcache_write(&best_hits_[rayID], payload_addrs_[rayID], sizeof(Hit));
-            thread_info.RT_store_transactions.emplace_back(payload_addrs_[rayID], sizeof(Hit), StoreTransactionType::TRAVERSAL_RESULTS);
+            thread_info.RT_payload_store = RayPayloadStoreTransactionRecord(payload_addrs_[rayID], 64 /*sizeof(Hit)*/);
             if(best_hits_[rayID].t == LARGE_FLOAT){
                 shader_queues[ShaderType::MISS].push(rayID);
             }else{
@@ -211,7 +211,6 @@ public:
                     payload_addrs_.erase(rayID);
                     traversal_trails_.erase(rayID);
                     traversal_stacks_.erase(rayID);
-                    trace_data->invalid = true;
                     break;
                 default: break;
             }
@@ -269,47 +268,53 @@ const RTUnit::PerfStats &RTUnit::perf_stats() const {
 void RTUnit::print_stats() const {
     PerfStats stats = perf_stats();
     std::cout << "Total warps: " << stats.rt_total_warps << std::endl;
-    std::cout << "Utilization: " << stats.rt_active_cycles << " " <<  stats.total_elapsed_cycles << " " <<(float)stats.rt_active_cycles / stats.total_elapsed_cycles << std::endl;
-    std::cout << "Avg warp latency: " << (float)stats.rt_total_warp_latency / stats.rt_total_warps << std::endl;
+    std::cout << "Total warps latency: " << stats.rt_total_warp_latency << std::endl;
+    std::cout << "Avg warp latency: " << stats.rt_total_warp_latency / stats.rt_total_warps << std::endl;
+    std::cout << "Total threads latency: " << stats.rt_total_thread_latency << std::endl;
+    std::cout << "Avg threads latency: " << stats.rt_total_thread_latency / stats.rt_total_warps << std::endl;
     std::cout << "Avg efficiency: " << stats.rt_total_simt_efficiency / stats.rt_total_warps << std::endl;
 
-    // std::string warp_status_names[warp_statuses] = {
-    //     "warp_stalled",
-    //     "warp_waiting",
-    //     "warp_executing"
-    // };
+    std::cout << "RT active cycles: " << stats.rt_active_cycles << std::endl;
+    std::cout << "RT total cycles: " <<  stats.total_elapsed_cycles << std::endl;
+    std::cout << "RT active rate: " <<  (float)stats.rt_active_cycles / stats.total_elapsed_cycles  << std::endl;
 
-    // std::string ray_status_names[ray_statuses] = {
-    //     "awaiting_processing",
-    //     "awaiting_scheduling",
-    //     "awaiting_mf",
-    //     "executing_op",
-    //     "trace_complete"
-    // };
+    std::string warp_status_names[warp_statuses] = {
+        "warp_stalled",
+        "warp_waiting",
+        "warp_executing"
+    };
 
-    // for (unsigned i=0; i<warp_statuses; i++) {
-    //     std::cout << warp_status_names[i].c_str() << std::endl;
-    //     for (unsigned j=0; j<ray_statuses; j++) {
-    //         std::cout << "=> " << ray_status_names[j].c_str() << ": " << stats.rt_latency_dist[i][j] / stats.rt_latency_counter << std::endl;
-    //     }
-    // }
+    std::string ray_status_names[ray_statuses] = {
+        "awaiting_processing",
+        "awaiting_scheduling",
+        "awaiting_mf",
+        "executing_op",
+        "trace_complete"
+    };
 
-    const char * filename = "latencies.csv";
-    std::ofstream outFile(filename);
-
-    if (outFile.is_open()) {
-        // Header
-        outFile << "Warp_Latency\n";
-
-        // Data
-        for (const auto& latency : stats.rt_warp_latencies) {
-            outFile << latency << "\n";
+    for (unsigned i=0; i<warp_statuses; i++) {
+        std::cout << warp_status_names[i].c_str() << std::endl;
+        for (unsigned j=0; j<ray_statuses; j++) {
+            std::cout << "=> " << ray_status_names[j].c_str() << ": " << stats.rt_latency_dist[i][j] / stats.rt_latency_counter << std::endl;
         }
-
-        outFile.close();
-    } else {
-        std::cerr << "Error: Could not open file " << filename << std::endl;
     }
+
+    // const char * filename = "latencies.csv";
+    // std::ofstream outFile(filename);
+
+    // if (outFile.is_open()) {
+    //     // Header
+    //     outFile << "Warp_Latency\n";
+
+    //     // Data
+    //     for (const auto& latency : stats.rt_warp_latencies) {
+    //         outFile << latency << "\n";
+    //     }
+
+    //     outFile.close();
+    // } else {
+    //     std::cerr << "Error: Could not open file " << filename << std::endl;
+    // }
 }
 
 void RTUnit::dcache_read(void* data, uint64_t addr, uint32_t size){

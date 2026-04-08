@@ -15,7 +15,7 @@
 
 #define INVALID_IDX 0xFFFFFFFF
 
-#define BVH_WIDTH 4
+#define BVH_WIDTH 6
 
 struct material_info_t {
   float3_t ambient;

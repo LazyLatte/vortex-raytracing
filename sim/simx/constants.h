@@ -56,6 +56,7 @@ inline constexpr uint32_t LSU_NUM_REQS	  = (NUM_LSU_BLOCKS * LSU_CHANNELS);
 
 // The dcache uses coalesced memory blocks
 inline constexpr uint32_t DCACHE_WORD_SIZE= LSU_LINE_SIZE;
+inline constexpr uint32_t DCACHE_WORD_SIZE_BITS = log2ceil(DCACHE_WORD_SIZE);
 inline constexpr uint32_t DCACHE_CHANNELS = __UP((NUM_LSU_LANES * XLENB) / DCACHE_WORD_SIZE);
 inline constexpr uint32_t DCACHE_NUM_REQS	= (NUM_LSU_BLOCKS * DCACHE_CHANNELS);
 

@@ -171,11 +171,11 @@ int Tracer::init(const char *kernel_file, const char* model_file, uint32_t mesh_
 int Tracer::setup(float camera_vfov, float zoom, float3_t light_pos, float3_t light_color, float3_t ambient_color, float3_t background_color) {
 
   // transform BVH instances
-  {
-    // slightly rotate the scene
-    auto T = mat4_t::RotateX(-PI / 4) * mat4_t::RotateY(PI / 4);
-    scene_->applyTransform(T);
-  }
+  // {
+  //   // slightly rotate the scene
+  //   auto T = mat4_t::RotateX(-PI / 4) * mat4_t::RotateY(PI / 4);
+  //   scene_->applyTransform(T);
+  // }
 
   // build the scene
   scene_->build();

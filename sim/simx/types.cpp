@@ -267,11 +267,11 @@ void RtuMemAdapter::tick() {
   if (!ReqIn.empty()) {
     auto& in_req = ReqIn.peek();
     
-    uint32_t num_chunks = 1; //std::ceil(in_req.size / (float)(DCACHE_WORD_SIZE));
+    uint32_t num_chunks = in_req.size >> DCACHE_WORD_SIZE_BITS;
     
     if (chunks_sent_ < num_chunks) {
-      uint64_t current_addr = in_req.addr;// + (chunks_sent_ * DCACHE_WORD_SIZE);
-      uint32_t channel = 0;//(current_addr >> 6) % ReqOut.size();
+      uint64_t current_addr = in_req.addr + (chunks_sent_ * DCACHE_WORD_SIZE);
+      uint32_t channel = (current_addr >> DCACHE_WORD_SIZE_BITS) % ReqOut.size();
 
       MemReq out_req;
       out_req.write = in_req.write;

@@ -66,12 +66,13 @@ void _start(uint32_t rayID, kernel_arg_t *arg){
   }
 
   // diffuse shading
-  float3_t diffuse = diffuseLighting(I, N, texColor, arg->ambient_color, arg->light_color, arg->light_pos);
+  // float3_t diffuse = diffuseLighting(I, N, texColor, arg->ambient_color, arg->light_color, arg->light_pos);
 
   float reflectivity = blas.reflectivity;
   float throughput = 1.0f;
   // add non-reflected diffuse contribution
-  float3_t radiance = throughput * diffuse * (1.0 - reflectivity);
+  // float3_t radiance = throughput * diffuse * (1.0 - reflectivity);
+  float3_t radiance = throughput * texColor * (1.0 - reflectivity);
 
   // carry forward reflected energy
   throughput *= reflectivity;
