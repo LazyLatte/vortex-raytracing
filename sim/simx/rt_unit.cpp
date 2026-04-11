@@ -46,55 +46,25 @@ public:
         core_->dcache_write(data, addr, size);
     }
 
-    void init_ray(std::vector<reg_data_t>& rd_data){
-        for (uint32_t tid = 0; tid < num_lanes_; tid++) {
-            uint32_t rayID = cur_rayid_++;
-            if(rayID == 0x10000000) rayID = 1;
-            rays_[rayID] = Ray();
-            hits_[rayID] = Hit();
-            best_hits_[rayID] = Hit();
-            payload_addrs_[rayID] = 0;
-            traversal_trails_[rayID] = {};
-            traversal_stacks_[rayID] = TraversalStack();
-            rd_data[tid].u32 = rayID;
-        } 
+    uint32_t init_ray(uint32_t payload_addr){
+        uint32_t rayID = cur_rayid_++;
+        if(rayID == 0x10000000) rayID = 1;
+        rays_[rayID] = Ray();
+        hits_[rayID] = Hit();
+        best_hits_[rayID] = Hit();
+        payload_addrs_[rayID] = payload_addr;
+        traversal_trails_[rayID] = {};
+        traversal_stacks_[rayID] = TraversalStack();
+        return rayID;
     }
 
-    void set_ray_properties(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data, uint32_t axis){
-        for (uint32_t tid = 0; tid < num_lanes_; tid++) {
-            uint32_t rayID = rs1_data[tid].u32;
-            uint32_t rs2 = rs2_data[tid].u32;
-            uint32_t rs3 = rs3_data[tid].u32;
-            
-            float orig = *reinterpret_cast<float*>(&rs2);
-            float dir = *reinterpret_cast<float*>(&rs3);
-            
-            switch(axis){
-                case 0:
-                    rays_[rayID].ro_x = orig;
-                    rays_[rayID].rd_x = dir;
-                    break;
-                case 1:
-                    rays_[rayID].ro_y = orig;
-                    rays_[rayID].rd_y = dir;
-                    break;
-                case 2:
-                    rays_[rayID].ro_z = orig;
-                    rays_[rayID].rd_z = dir;
-                    break;
-                default: 
-                    std::cout << "Invalid Axis: " << axis << std::endl;
-                    std::abort();
-            }
-        }  
-    }
-
-    void set_payload_addr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data){
-        for (uint32_t tid = 0; tid < num_lanes_; tid++) {
-            uint32_t rayID = rs1_data[tid].u32;
-            uint32_t payload_addr = rs2_data[tid].u32;
-            payload_addrs_[rayID] = payload_addr;
-        }
+    void free_ray(uint32_t rayID){
+        rays_.erase(rayID);
+        hits_.erase(rayID);
+        best_hits_.erase(rayID);
+        payload_addrs_.erase(rayID);
+        traversal_trails_.erase(rayID);
+        traversal_stacks_.erase(rayID);
     }
 
     void traverse(uint32_t rayID, per_thread_info &thread_info){
@@ -108,13 +78,14 @@ public:
         );
         
         if(completed){
-            dcache_write(&best_hits_[rayID], payload_addrs_[rayID], sizeof(Hit));
-            thread_info.RT_payload_store = RayPayloadStoreTransactionRecord(payload_addrs_[rayID], 64 /*sizeof(Hit)*/);
             if(best_hits_[rayID].t == LARGE_FLOAT){
-                shader_queues[ShaderType::MISS].push(rayID);
+                shader_queues[ShaderType::MISS].push(payload_addrs_[rayID]);
             }else{
-                shader_queues[ShaderType::CLOSET].push(rayID);
+                shader_queues[ShaderType::CLOSET].push(payload_addrs_[rayID]);
+                dcache_write(&best_hits_[rayID], payload_addrs_[rayID] + sizeof(Ray), sizeof(Hit));
+                thread_info.RT_store_transactions.emplace_back(payload_addrs_[rayID], 64, StoreTransactionType::TRAVERSAL_RESULTS);
             }
+            free_ray(rayID);
         }else{
             shader_queues[ShaderType::ANY].push(rayID);
         }
@@ -122,7 +93,9 @@ public:
 
     void traverse(const std::vector<reg_data_t>& rs1_data, RtuTraceData* trace_data){
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
-            uint32_t rayID = rs1_data[tid].u32;
+            uint32_t payload_addr = rs1_data[tid].u32;
+            uint32_t rayID = init_ray(payload_addr);
+            dcache_read(&rays_[rayID], payload_addr, sizeof(Ray));
             traverse(rayID, trace_data->m_per_scalar_thread[tid]);
         }
     }
@@ -157,8 +130,8 @@ public:
         
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             if(tid < active_lanes){
-                uint32_t rayID = out_warp[tid];
-                rd_data[tid].u32 = (1 << (28 + type)) | (rayID & 0x0FFFFFFF); 
+                uint32_t data = out_warp[tid];
+                rd_data[tid].u32 = (1 << (28 + type)) | (data & 0x0FFFFFFF); 
             }else{
                 rd_data[tid].u32 = (1 << (28 + type)); 
             }
@@ -178,7 +151,6 @@ public:
                 case VX_RT_RAY_RD_X: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].rd_x); break;
                 case VX_RT_RAY_RD_Y: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].rd_y); break;
                 case VX_RT_RAY_RD_Z: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].rd_z); break;
-                case VX_RT_RAY_PAYLOAD_ADDR: rd_data[tid].u32 = payload_addrs_[rayID]; break;
 
                 case VX_RT_HIT_T: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hits_[rayID].t); break;
                 case VX_RT_HIT_U: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hits_[rayID].u); break;
@@ -197,20 +169,16 @@ public:
             uint32_t actionID = rs2_data[tid].u32;
             
             switch(actionID){
-                case VX_RT_COMMIT_CONT: 
+                case VX_RT_ANYHIT_IGNORE: 
                     traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                     break;
-                case VX_RT_COMMIT_ACCEPT: 
+                case VX_RT_ANYHIT_ACCEPT: 
                     best_hits_[rayID] = hits_[rayID];
                     traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                     break;
-                case VX_RT_COMMIT_TERM: 
-                    rays_.erase(rayID);
-                    hits_.erase(rayID);
-                    best_hits_.erase(rayID);
-                    payload_addrs_.erase(rayID);
-                    traversal_trails_.erase(rayID);
-                    traversal_stacks_.erase(rayID);
+                case VX_RT_INTERSECTION_IGNORE: 
+                    break;
+                case VX_RT_INTERSECTION_ACCEPT: 
                     break;
                 default: break;
             }
@@ -323,18 +291,6 @@ void RTUnit::dcache_read(void* data, uint64_t addr, uint32_t size){
 
 void RTUnit::dcache_write(const void* data, uint64_t addr, uint32_t size){
     impl_->dcache_write(data, addr, size);
-}
-
-void RTUnit::init_ray(std::vector<reg_data_t>& rd_data){
-    impl_->init_ray(rd_data);
-}
-
-void RTUnit::set_ray_properties(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data, uint32_t axis){
-    impl_->set_ray_properties(rs1_data, rs2_data, rs3_data, axis);
-}
-
-void RTUnit::set_payload_addr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data){
-    impl_->set_payload_addr(rs1_data, rs2_data);
 }
 
 void RTUnit::traverse(const std::vector<reg_data_t>& rs1_data, RtuTraceData* trace_data){

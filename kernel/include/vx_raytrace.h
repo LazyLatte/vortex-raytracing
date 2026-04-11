@@ -18,36 +18,8 @@
 namespace vortex {
 namespace rt {
 
-static __attribute__((always_inline)) void traceRay(
-    float ro_x, 
-    float ro_y, 
-    float ro_z, 
-    float rd_x, 
-    float rd_y, 
-    float rd_z, 
-    uint32_t payload_addr,
-    uint32_t& rayID
-) {
-    
-    register float ox __asm__("f10") = ro_x;
-    register float oy __asm__("f11") = ro_y;
-    register float oz __asm__("f12") = ro_z;
-
-    register float dx __asm__("f13") = rd_x;
-    register float dy __asm__("f14") = rd_y;
-    register float dz __asm__("f15") = rd_z;
-
-    register uint32_t ret __asm__("x6");
-
-    __asm__ volatile (
-        ".insn r %[insn], 0, 3, %[rd_t], %[rs_ray], %[rs_payload_addr]"
-        : [rd_t] "=r"(ret)
-        : [insn] "i"(RISCV_CUSTOM0)
-        , [rs_ray] "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz)
-        , [rs_payload_addr] "r"(payload_addr)
-    );
-
-    rayID = ret;
+inline void traceRay(uint32_t payload_addr) {
+    __asm__ volatile (".insn r %0, 0, 3, x0, %1, x0" :: "i"(RISCV_CUSTOM0), "r"(payload_addr));
 }
 
 inline int getWork() {

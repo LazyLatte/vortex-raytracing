@@ -739,11 +739,6 @@ inline std::ostream &operator<<(std::ostream &os, const TcuType& type) {
 ///////////////////////////////////////////////////////////////////////////////
 
 enum class RtuType {
-  INIT_RAY,
-  LOAD_X,
-  LOAD_Y,
-  LOAD_Z,
-  SET_PAYLOAD_ADDR,
   TRACE,
   GET_WORK,
   GET_ATTR,
@@ -754,11 +749,6 @@ struct IntrRtuArgs {};
 
 inline std::ostream &operator<<(std::ostream &os, const RtuType& type) {
   switch (type) {
-  case RtuType::INIT_RAY:           os << "INIT_RAY"; break;
-  case RtuType::LOAD_X:             os << "LOAD_X"; break;
-  case RtuType::LOAD_Y:             os << "LOAD_Y"; break;
-  case RtuType::LOAD_Z:             os << "LOAD_Z"; break;
-  case RtuType::SET_PAYLOAD_ADDR:   os << "SET_PAYLOAD_ADDR"; break;
   case RtuType::TRACE:              os << "TRACE"; break;
   case RtuType::GET_WORK:           os << "GET_WORK"; break;
   case RtuType::GET_ATTR:           os << "GET_ATTR"; break;

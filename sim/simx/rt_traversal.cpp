@@ -49,9 +49,10 @@ bool BVHTraverser::traverse(
     while(!exit){
 
         read_node(&node, node_ptr);
-        thread_info.RT_mem_accesses.emplace_back(node_ptr, 64 /*sizeof(BVHNode)*/, TransactionType::BVH_INTERNAL_NODE);
+        
 
         if(!isLeaf(&node)){
+            thread_info.RT_mem_accesses.emplace_back(node_ptr, 64 /*sizeof(BVHNode)*/, TransactionType::BVH_INTERNAL_NODE);
             std::vector<ChildIntersection> intersections;
 
             for(int i=0; i<RT_BVH_WIDTH; i++){

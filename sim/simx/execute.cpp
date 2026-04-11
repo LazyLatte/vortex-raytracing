@@ -1595,26 +1595,9 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
     ,[&](RtuType rtu_type) {
       auto rtuArgs = std::get<IntrRtuArgs>(instrArgs);
       switch (rtu_type) {
-      case RtuType::INIT_RAY: {
-        core_->rt_unit()->init_ray(rd_data);
-        rd_write = true;
-      } break;
-      case RtuType::LOAD_X: {
-        core_->rt_unit()->set_ray_properties(rs1_data, rs2_data, rs3_data, 0);
-      } break;
-      case RtuType::LOAD_Y: {
-        core_->rt_unit()->set_ray_properties(rs1_data, rs2_data, rs3_data, 1);
-      } break;
-      case RtuType::LOAD_Z: {
-        core_->rt_unit()->set_ray_properties(rs1_data, rs2_data, rs3_data, 2);
-      } break;
-      case RtuType::SET_PAYLOAD_ADDR: {        
-        core_->rt_unit()->set_payload_addr(rs1_data, rs2_data);
-      } break;
       case RtuType::TRACE: {
         auto trace_data = std::make_shared<RtuTraceData>(num_threads);
         trace->data = trace_data;
-        
         core_->rt_unit()->traverse(rs1_data, trace_data.get());
       } break;
       case RtuType::GET_WORK: {     
@@ -1629,7 +1612,6 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
         auto trace_data = std::make_shared<RtuTraceData>(num_threads);
         trace->data = trace_data;    
         core_->rt_unit()->commit(rs1_data, rs2_data, trace_data.get());
-        
       } break;
       default:
         std::abort();

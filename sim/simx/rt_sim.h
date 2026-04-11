@@ -35,7 +35,7 @@ private:
 
 	HashTable<pending_req_t> pending_reqs_;
 
-	std::deque<std::pair<instr_trace_t*, RayPayloadStoreTransactionRecord>> mem_store_q;
+	std::deque<std::pair<instr_trace_t*, MemoryStoreTransactionRecord>> mem_store_q;
 	std::unordered_map<instr_trace_t*, unsigned long long> warp_latencies_;
 	std::unordered_map<instr_trace_t*, uint32_t> warp_iws_;
     std::unordered_set<instr_trace_t*> warp_buffers_;

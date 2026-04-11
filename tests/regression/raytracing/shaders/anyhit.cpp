@@ -34,6 +34,6 @@ void _start(uint32_t rayID, kernel_arg_t *arg){
   //   vortex::rt::commit(rayID, VX_RT_COMMIT_ACCEPT);
   // }
   
-  vortex::rt::commit(rayID, VX_RT_COMMIT_ACCEPT);
+  vortex::rt::commit(rayID, VX_RT_ANYHIT_ACCEPT);
 }
 }

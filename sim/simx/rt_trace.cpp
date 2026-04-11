@@ -54,7 +54,7 @@ RTMemoryTransactionRecord RtuTraceData::get_next_rt_mem_transaction() {
     return next_access;
 }
 
-unsigned RtuTraceData::dec_thread_latency(instr_trace_t* trace, std::deque<std::pair<instr_trace_t*, RayPayloadStoreTransactionRecord>> &store_queue) { 
+unsigned RtuTraceData::dec_thread_latency(instr_trace_t* trace, std::deque<std::pair<instr_trace_t*, MemoryStoreTransactionRecord>> &store_queue) { 
     // Track number of threads performing intersection tests
     unsigned n_threads = 0;
 
@@ -63,15 +63,14 @@ unsigned RtuTraceData::dec_thread_latency(instr_trace_t* trace, std::deque<std::
             m_per_scalar_thread[i].intersection_delay--; 
             n_threads++;
             if(m_per_scalar_thread[i].intersection_delay == 0 && m_per_scalar_thread[i].RT_mem_accesses.empty()){
-                store_queue.push_back(
-                    std::pair<instr_trace_t*, RayPayloadStoreTransactionRecord>(
-                        trace, 
-                        m_per_scalar_thread[i].RT_payload_store
-                    )
-                );
+                for(auto & store_transaction : m_per_scalar_thread[i].RT_store_transactions) {
+                    store_queue.push_back(
+                        std::pair<instr_trace_t*, MemoryStoreTransactionRecord>(trace, store_transaction)
+                    );
 
-                assert(m_pending_writes.find(store_transaction.addr) == m_pending_writes.end());
-                m_pending_writes.insert(m_per_scalar_thread[i].RT_payload_store.addr);
+                    assert(m_pending_writes.find(store_transaction.addr) == m_pending_writes.end());
+                    m_pending_writes.insert(store_transaction.addr);
+                }
             }
 
             // if (m_per_scalar_thread[i].intersection_delay == 0 && m_per_scalar_thread[i].ray_intersect) {

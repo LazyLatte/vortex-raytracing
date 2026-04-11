@@ -60,17 +60,12 @@ struct MemoryStoreTransactionRecord {
   : addr(addr), size(size), type(type) {}
 };
 
-struct RayPayloadStoreTransactionRecord : public MemoryStoreTransactionRecord {
-  RayPayloadStoreTransactionRecord(){}
-  RayPayloadStoreTransactionRecord(uint32_t addr, uint32_t size): MemoryStoreTransactionRecord(addr, size, StoreTransactionType::TRAVERSAL_RESULTS){}
-};
-
 struct per_thread_info {      
   per_thread_info(){}
   ~per_thread_info(){}
 
   std::deque<RTMemoryTransactionRecord> RT_mem_accesses;
-  RayPayloadStoreTransactionRecord RT_payload_store;
+  std::vector<MemoryStoreTransactionRecord> RT_store_transactions;
 
   bool ray_intersect = false;
   unsigned intersection_delay = 0;
@@ -112,7 +107,7 @@ struct RtuTraceData : public ITraceData {
   RTMemoryTransactionRecord get_next_rt_mem_transaction();
   unsigned process_returned_mem_access(uint32_t rsp_addr);
   bool process_returned_mem_access(unsigned tid, uint32_t rsp_addr);
-  unsigned dec_thread_latency(instr_trace_t* trace, std::deque<std::pair<instr_trace_t*, RayPayloadStoreTransactionRecord>> &store_queue);
+  unsigned dec_thread_latency(instr_trace_t* trace, std::deque<std::pair<instr_trace_t*, MemoryStoreTransactionRecord>> &store_queue);
 
 
   bool is_stalled();
