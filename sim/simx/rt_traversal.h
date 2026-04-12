@@ -47,7 +47,8 @@ struct Ray {
 struct Hit {
     float t = LARGE_FLOAT;
     float u, v;
-    uint32_t blasIdx, triIdx;
+    uint32_t blasIdx;
+    uint32_t triIdx;
 };
 
 struct TraversalStackEntry {
@@ -55,29 +56,88 @@ struct TraversalStackEntry {
     bool last;
 
     TraversalStackEntry() : node_ptr(0), last(false) {}
+    TraversalStackEntry(uint32_t _node_ptr) : node_ptr(_node_ptr), last(false) {}
     TraversalStackEntry(uint32_t _node_ptr, bool _last) : node_ptr(_node_ptr), last(_last) {}
 };
 
 typedef ShortStack<TraversalStackEntry, RT_STACK_SIZE> TraversalStack;
 typedef std::array<uint32_t, MAX_TRAIL_LEVEL> TraversalTrail; //trail[i]: 0 ~ BVH_WIDTH
 
+struct TraversalState {
+    Ray ray;
+    Hit hit, best_hit;
+    TraversalTrail trail;
+    TraversalStack stack;
+    uint32_t root_ptr;
+    uint32_t root_level;
+    uint32_t level;
+    
+    TraversalState(){}
+    TraversalState(Ray ray, uint32_t root_ptr){
+        this->ray = ray;
+        this->hit = Hit();
+        this->best_hit = Hit();
+        this->trail = {};
+        this->stack = TraversalStack();
+        this->root_ptr = root_ptr;
+        this->root_level = 0;
+        this->level = 0;
+    }
+
+    int32_t findNextParentLevel(){
+        for(int i=level-1; i>=root_level; i--){
+            if(trail[i] != RT_BVH_WIDTH){
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    uint32_t pop(uint32_t& node_ptr){
+        int32_t parentLevel = findNextParentLevel();
+
+        if(parentLevel < 0){
+            return VX_RT_TRAVERSAL_STATUS_FINISHED;
+        }
+
+        trail[parentLevel]++;
+
+        for(int i=parentLevel+1; i<MAX_TRAIL_LEVEL; i++){
+            trail[i] = 0;
+        }
+
+        if(stack.empty()){
+            return VX_RT_TRAVERSAL_STATUS_RESTART;
+        }
+
+        auto e = stack.pop();
+        node_ptr = e.node_ptr;
+        if(e.last){
+            trail[parentLevel] = RT_BVH_WIDTH;
+        }
+
+        level = parentLevel + 1;
+        return VX_RT_TRAVERSAL_STATUS_CONTINUE; 
+    }
+};
+
 class RTUnit;
 class BVHTraverser{
     public:
         BVHTraverser(RTUnit* rt_unit, const DCRS &dcrs);
-        bool traverse(const Ray& ray, Hit& hit, Hit& best_hit, TraversalTrail& trail, TraversalStack& traversal_stack, per_thread_info &thread_info);
+
+        uint32_t traverse(TraversalState& state, per_thread_info &thread_info);
+
+        Ray ray_transform(const Ray &ray, float *transform_matrix);
     private:
-        bool pop(uint32_t& base_ptr, uint32_t& node_ptr, uint32_t& level, TraversalTrail& trail, TraversalStack& traversal_stack);
-        int32_t findNextParentLevel(const uint32_t level, const TraversalTrail& trail);
         
         void read_node(BVHNode *node, uint32_t node_ptr);
         bool isTopLevel(BVHNode *node);
         bool isLeaf(BVHNode *node);
-        uint32_t calcNodePtr(uint32_t base_ptr, uint32_t idx){ return base_ptr + idx * sizeof(BVHNode); }
+        uint32_t calcNodePtr(uint32_t root_ptr, uint32_t idx){ return root_ptr + idx * sizeof(BVHNode); }
         void dcache_read(void* data, uint64_t addr, uint32_t size);
         void dcache_write(const void* data, uint64_t addr, uint32_t size);
         
-        Ray ray_transform(const Ray &ray, float *transform_matrix);
         float ray_tri_intersect(const Ray &ray, const Triangle &tri, float &u, float &v);
         float ray_box_intersect(const Ray &ray, float min_x, float min_y, float min_z, float max_x, float max_y, float max_z);
 
