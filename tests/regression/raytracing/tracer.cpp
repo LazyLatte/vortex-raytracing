@@ -118,7 +118,9 @@ int Tracer::init(const char *kernel_file, const char* model_file, uint32_t mesh_
     RT_CHECK(vx_upload_kernel_file(device_, kernel_file, &krnl_buffer_));
     RT_CHECK(vx_upload_kernel_file(device_, "miss.vxbin", &miss_shader_buffer_));
     RT_CHECK(vx_upload_kernel_file(device_, "closest.vxbin", &closest_hit_shader_buffer_));
+    RT_CHECK(vx_upload_kernel_file(device_, "intersection.vxbin", &intersection_shader_buffer_));
     RT_CHECK(vx_upload_kernel_file(device_, "anyhit.vxbin", &any_hit_shader_buffer_));
+    
 
     // allocate tri buffer
     RT_CHECK(vx_mem_alloc(device_, scene_->tri_buf().size() * sizeof(tri_t), VX_MEM_READ, &triBuffer_));
@@ -244,7 +246,7 @@ int Tracer::setup(float camera_vfov, float zoom, float3_t light_pos, float3_t li
   uint64_t tmp_sbt[4];
   RT_CHECK(vx_mem_address(miss_shader_buffer_, &tmp_sbt[0]));
   RT_CHECK(vx_mem_address(closest_hit_shader_buffer_, &tmp_sbt[1]));
-  //RT_CHECK(vx_mem_address(intersection_shader_buffer_, &tmp_sbt[2]));
+  RT_CHECK(vx_mem_address(intersection_shader_buffer_, &tmp_sbt[2]));
   RT_CHECK(vx_mem_address(any_hit_shader_buffer_, &tmp_sbt[3]));
 
   RT_CHECK(vx_copy_to_dev(sbtBuffer_, tmp_sbt, 0, sizeof(uint64_t) * 4));

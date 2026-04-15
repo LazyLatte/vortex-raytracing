@@ -21,7 +21,7 @@ struct material_info_t {
   float3_t ambient;
   float3_t diffuse;
   float3_t specular;
-  float3_t emissive;
+  float3_t emissive = {0.0, 0.0, 0.0};
   
   float shininess;
   float ior;
@@ -49,6 +49,12 @@ struct ray_hit_t {
   uint32_t triIdx = 0;  // triangle index
 };
 
+struct hit_t {
+  float t, u, v;
+  uint32_t primitiveID;
+  uint32_t instanceID;
+};
+
 struct child_data_t {
   uint8_t meta;
   uint8_t qaabb[6];
@@ -56,14 +62,29 @@ struct child_data_t {
 
 // BVH quantized node struct
 struct bvh_quantized_node_t {
-  float3_t origin;
-  int8_t ex, ey, ez;
-  uint8_t imask; //topLevel = 1, bottom = 0
-
   uint32_t leftFirst;
-  uint32_t leafIdx;
-  
-  child_data_t children[BVH_WIDTH];
+
+#define BVH_INTERNAL   0
+#define INSTANCE_LEAF  1
+#define PRIMITIVE_LEAF 3
+  uint8_t type;
+  int8_t ex, ey, ez;
+
+  union {
+      // --- INTERNAL NODE ---
+      struct {
+          float3_t origin;
+          child_data_t children[BVH_WIDTH];
+          uint8_t padding[2];
+      } internal;
+
+      // --- LEAF ---
+      struct {
+          uint32_t shaderIndex;
+          uint32_t primCount;
+          uint8_t  payload[48];   
+      } leaf;
+  };
 };
 
 // BVH node struct

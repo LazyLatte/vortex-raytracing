@@ -16,10 +16,10 @@ void _start(uint32_t payload_addr, kernel_arg_t *arg){
   float bz = 1 - bx - by;
 
   auto triEx_ptr = reinterpret_cast<const tri_ex_t *>(arg->triEx_addr);
-  const tri_ex_t &triEx = triEx_ptr[payload->tri_idx];
+  const tri_ex_t &triEx = triEx_ptr[payload->primitiveID];
 
   auto blas_ptr = reinterpret_cast<const blas_node_t *>(arg->blas_addr);
-  auto &blas = blas_ptr[payload->blas_idx];
+  auto &blas = blas_ptr[payload->instanceID];
 
   // intersection point
   float3_t I = payload->origin + payload->direction * t;
@@ -48,7 +48,7 @@ void _start(uint32_t payload_addr, kernel_arg_t *arg){
   payload->irradiance += payload->throughput * ambient;
 
   // Handle Emission (Light Sources)
-  if(0 /*length(mat.emissive) > 0.0f*/){
+  if(length(mat.emissive) > 0.0f){
       payload->irradiance += payload->throughput * mat.emissive;
       payload->stop = true;
   } else {

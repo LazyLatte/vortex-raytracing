@@ -8,7 +8,7 @@ SRC_DIR := $(VORTEX_HOME)/tests/regression/$(PROJECT)
 SRCS := $(SRC_DIR)/main.cpp $(SRC_DIR)/tracer.cpp $(SRC_DIR)/mesh.cpp $(SRC_DIR)/surface.cpp $(SRC_DIR)/bvh.cpp $(SRC_DIR)/scene.cpp $(SRC_DIR)/treelet.cpp
 
 SHADER_DIR := $(SRC_DIR)/shaders
-SHADERS := kernel miss closest anyhit
+SHADERS := kernel miss closest intersection anyhit
 
 VX_BINS  := $(addsuffix .vxbin, $(SHADERS))
 VX_DUMPS := $(addsuffix .dump, $(SHADERS))
@@ -101,10 +101,12 @@ endif
 endif
 endif
 
-kernel.elf:   STARTUP_ADDR := 0x80000000
-miss.elf:     STARTUP_ADDR := 0x80100000
-closest.elf:  STARTUP_ADDR := 0x80200000
-anyhit.elf:   STARTUP_ADDR := 0x80300000
+kernel.elf:   		STARTUP_ADDR := 0x80000000
+miss.elf:     		STARTUP_ADDR := 0x80100000
+closest.elf:  		STARTUP_ADDR := 0x80200000
+intersection.elf:   STARTUP_ADDR := 0x80300000
+anyhit.elf:   		STARTUP_ADDR := 0x80400000
+
 
 all: $(PROJECT) $(VX_BINS) $(VX_DUMPS)
 
@@ -117,7 +119,7 @@ all: $(PROJECT) $(VX_BINS) $(VX_DUMPS)
 kernel.elf: $(SRC_DIR)/kernel.cpp
 	$(VX_CXX) $(VX_CFLAGS) $< $(VX_LDFLAGS) -o $@
 
-miss.elf closest.elf anyhit.elf: %.elf: $(SHADER_DIR)/%.cpp
+miss.elf closest.elf intersection.elf anyhit.elf: %.elf: $(SHADER_DIR)/%.cpp
 	$(VX_CXX) $(VX_CFLAGS) $< $(VX_LDFLAGS) -o $@
 
 $(PROJECT): $(SRCS)

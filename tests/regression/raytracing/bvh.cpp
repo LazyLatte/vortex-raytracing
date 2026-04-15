@@ -227,19 +227,20 @@ void BVH::quantize(){
     bvh_quantized_node_t &qNode = bvhQNodes_[i];
 
     qNode.leftFirst = node.leftFirst; 
-    qNode.leafIdx = node.triCount;
-    qNode.origin = node.aabbMin;
-
-    //uint8_t
-    qNode.ex = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.x - node.aabbMin.x) / 255.0f)));
-    qNode.ey = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.y - node.aabbMin.y) / 255.0f)));
-    qNode.ez = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.z - node.aabbMin.z) / 255.0f)));
 
     // Right now, this is just to identify if node is toplevel or not
     // Could be storing childnode types (internal/leaf), then traversal stack entry should include a isLeaf bit.
-    qNode.imask = 0; 
+    // qNode.imask = 0; 
 
     if(!node.isLeaf()){
+      qNode.type = BVH_INTERNAL;
+      qNode.internal.origin = node.aabbMin;
+
+      //uint8_t
+      qNode.ex = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.x - node.aabbMin.x) / 255.0f)));
+      qNode.ey = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.y - node.aabbMin.y) / 255.0f)));
+      qNode.ez = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.z - node.aabbMin.z) / 255.0f)));
+
       for(int k=0; k<BVH_WIDTH; k++){
         child_data_t qChild;
 
@@ -248,20 +249,22 @@ void BVH::quantize(){
 
           qChild.meta = 1; //Do we need meta info, or just a single valid bit?
 
-          qChild.qaabb[0] = static_cast<uint8_t>(std::floor((child.aabbMin.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-          qChild.qaabb[1] = static_cast<uint8_t>(std::floor((child.aabbMin.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-          qChild.qaabb[2] = static_cast<uint8_t>(std::floor((child.aabbMin.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
+          qChild.qaabb[0] = static_cast<uint8_t>(std::floor((child.aabbMin.x - qNode.internal.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
+          qChild.qaabb[1] = static_cast<uint8_t>(std::floor((child.aabbMin.y - qNode.internal.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
+          qChild.qaabb[2] = static_cast<uint8_t>(std::floor((child.aabbMin.z - qNode.internal.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
 
-          qChild.qaabb[3] = static_cast<uint8_t>(std::ceil((child.aabbMax.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-          qChild.qaabb[4] = static_cast<uint8_t>(std::ceil((child.aabbMax.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-          qChild.qaabb[5] = static_cast<uint8_t>(std::ceil((child.aabbMax.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
+          qChild.qaabb[3] = static_cast<uint8_t>(std::ceil((child.aabbMax.x - qNode.internal.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
+          qChild.qaabb[4] = static_cast<uint8_t>(std::ceil((child.aabbMax.y - qNode.internal.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
+          qChild.qaabb[5] = static_cast<uint8_t>(std::ceil((child.aabbMax.z - qNode.internal.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
 
         }else{
           qChild.meta = 0;
         }
-        qNode.children[k] = qChild;
+        qNode.internal.children[k] = qChild;
       }
     }else{
+      qNode.type = PRIMITIVE_LEAF;
+      qNode.leaf.primCount = node.triCount;
       qNode.leftFirst += tri_offset_;
     }
   }
@@ -588,16 +591,15 @@ void TLAS::quantize(){
     bvh_quantized_node_t &qNode = tlasQNodes_[i];
 
     qNode.leftFirst = node.leftFirst;
-    qNode.leafIdx = node.blasIdx;
-    qNode.origin = node.aabbMin;
-
-    //uint8_t
-    qNode.ex = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.x - node.aabbMin.x) / 255.0f)));
-    qNode.ey = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.y - node.aabbMin.y) / 255.0f)));
-    qNode.ez = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.z - node.aabbMin.z) / 255.0f)));
-    qNode.imask = 1; //TLAS node
+    //qNode.imask = 1; //TLAS node
 
     if(!node.isLeaf()){
+      qNode.type = BVH_INTERNAL;
+      qNode.internal.origin = node.aabbMin;
+      qNode.ex = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.x - node.aabbMin.x) / 255.0f)));
+      qNode.ey = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.y - node.aabbMin.y) / 255.0f)));
+      qNode.ez = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.z - node.aabbMin.z) / 255.0f)));
+
       for(int k=0; k<BVH_WIDTH; k++){
 
         child_data_t qChild;
@@ -606,23 +608,26 @@ void TLAS::quantize(){
           tlas_node_t child = tlasNodes_[node.leftFirst + k];
           qChild.meta = 1;
 
-          qChild.qaabb[0] = static_cast<uint8_t>(std::floor((child.aabbMin.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-          qChild.qaabb[1] = static_cast<uint8_t>(std::floor((child.aabbMin.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-          qChild.qaabb[2] = static_cast<uint8_t>(std::floor((child.aabbMin.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
+          qChild.qaabb[0] = static_cast<uint8_t>(std::floor((child.aabbMin.x - qNode.internal.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
+          qChild.qaabb[1] = static_cast<uint8_t>(std::floor((child.aabbMin.y - qNode.internal.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
+          qChild.qaabb[2] = static_cast<uint8_t>(std::floor((child.aabbMin.z - qNode.internal.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
 
-          qChild.qaabb[3] = static_cast<uint8_t>(std::ceil((child.aabbMax.x - qNode.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-          qChild.qaabb[4] = static_cast<uint8_t>(std::ceil((child.aabbMax.y - qNode.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-          qChild.qaabb[5] = static_cast<uint8_t>(std::ceil((child.aabbMax.z - qNode.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
+          qChild.qaabb[3] = static_cast<uint8_t>(std::ceil((child.aabbMax.x - qNode.internal.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
+          qChild.qaabb[4] = static_cast<uint8_t>(std::ceil((child.aabbMax.y - qNode.internal.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
+          qChild.qaabb[5] = static_cast<uint8_t>(std::ceil((child.aabbMax.z - qNode.internal.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
         }else{
           qChild.meta = 0;
         }
 
-        qNode.children[k] = qChild;
+        qNode.internal.children[k] = qChild;
       }
+    }else{
+      qNode.type = INSTANCE_LEAF;
+      qNode.leaf.primCount = node.blasIdx;
     }
-    std::cout << "Node " << i << ": " << qNode.leftFirst << " " << qNode.leafIdx << " " << node.childCount << std::endl;
+    // std::cout << "Node " << i << ": " << qNode.leftFirst << " " << qNode.leafIdx << " " << node.childCount << std::endl;
   }
-  std::cout << "TLAS Quantization ends ... (#node=" << nodeIndex_ << ", " << nodeCount_ << ")" << std::endl;
+  //std::cout << "TLAS Quantization ends ... (#node=" << nodeIndex_ << ", " << nodeCount_ << ")" << std::endl;
   //std::cout << "Root Idx: " << rootIndex_ << std::endl;
 
 }
