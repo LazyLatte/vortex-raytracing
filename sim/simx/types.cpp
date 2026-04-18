@@ -267,8 +267,8 @@ void RtuMemAdapter::tick() {
   if (!ReqIn.empty()) {
     auto& in_req = ReqIn.peek();
     
-    uint32_t num_chunks = in_req.size >> DCACHE_WORD_SIZE_BITS;
-    
+    uint32_t num_chunks = (in_req.size + DCACHE_WORD_SIZE - 1) >> DCACHE_WORD_SIZE_BITS;
+
     if (chunks_sent_ < num_chunks) {
       uint64_t current_addr = in_req.addr + (chunks_sent_ * DCACHE_WORD_SIZE);
       uint32_t channel = (current_addr >> DCACHE_WORD_SIZE_BITS) % ReqOut.size();

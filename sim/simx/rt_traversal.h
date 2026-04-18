@@ -52,6 +52,10 @@ struct BVHNode {
 struct BLASNode {
     uint32_t bvh_offset;
     float invTransform[12];
+
+    float transform[12]; // unused
+    uint32_t mat_offset; // unused
+    uint8_t padding[24]; // unused
 };
 
 struct Triangle {
@@ -63,8 +67,7 @@ struct Ray {
 };
 
 struct Hit {
-    float t = LARGE_FLOAT;
-    float u, v;
+    float t = LARGE_FLOAT, u, v;
     uint32_t primitiveID;
     uint32_t instanceID;
 };

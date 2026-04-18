@@ -307,7 +307,7 @@ void TLAS::build() {
       float3_t pos(c & 1 ? aabbMax.x : aabbMin.x,
                    c & 2 ? aabbMax.y : aabbMin.y,
                    c & 4 ? aabbMax.z : aabbMin.z);
-      bounds.grow(TransformPosition(pos, blas_node.transform));
+      bounds.grow(TransformPosition(pos, blas_node.transform.toMat4()));
     }
 
     tlasLeaves_[i].aabbMin = bounds.bmin;

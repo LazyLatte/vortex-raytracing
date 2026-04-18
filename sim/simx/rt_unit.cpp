@@ -6,6 +6,8 @@
 #include <fstream>
 
 #define NODE_ADDR(root, idx) root + idx * sizeof(BVHNode)
+#define INSTANCE_ADDR(root, idx) root + idx * sizeof(BLASNode)
+#define PRIMITIVE_ADDR(root, idx) root + idx * sizeof(Triangle)
 
 using namespace vortex;
 
@@ -180,11 +182,11 @@ public:
                 case VX_RT_TRAVERSAL_STATUS_INSTANCE_HIT:{
                     // TLAS -> BLAS
                     BLASNode blas;
-                    uint32_t data_ptr = blas_ptr + (state.hit.instanceID) * 160;
-                    dcache_read(&blas, data_ptr, sizeof(BLASNode));
-                    thread_info.RT_mem_accesses.emplace_back(data_ptr, 128, TransactionType::BVH_INSTANCE_LEAF);
+                    uint32_t instance_ptr = INSTANCE_ADDR(blas_ptr, state.hit.instanceID);
+                    dcache_read(&blas, instance_ptr, sizeof(BLASNode));
+                    thread_info.RT_mem_accesses.emplace_back(instance_ptr, sizeof(BLASNode), TransactionType::BVH_INSTANCE_LEAF);
                     state.ray = ray_transform(rays_[rayID], blas.invTransform);
-                    state.root_ptr = qBvh_ptr + blas.bvh_offset * sizeof(BVHNode);
+                    state.root_ptr = NODE_ADDR(qBvh_ptr, blas.bvh_offset);
                     state.root_level = state.level;
                     break;
                 }
@@ -214,7 +216,7 @@ public:
                         }else{
                             shader_queues[ShaderType::CLOSET].push(payload_addrs_[rayID]);
                             dcache_write(&state.best_hit, payload_addrs_[rayID] + sizeof(Ray), sizeof(Hit));
-                            thread_info.RT_store_transactions.emplace_back(payload_addrs_[rayID], 64, StoreTransactionType::TRAVERSAL_RESULTS);
+                            thread_info.RT_store_transactions.emplace_back(payload_addrs_[rayID], sizeof(Hit), StoreTransactionType::TRAVERSAL_RESULTS);
                         }
                         release_ray(rayID);
                         exit = true;

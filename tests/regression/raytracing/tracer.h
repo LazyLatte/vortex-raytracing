@@ -6,9 +6,7 @@
 
 class Tracer {
 public:
-  Tracer(uint32_t dst_width, uint32_t dst_height,
-         uint32_t samples_per_pixel,
-         uint32_t max_depth, bool use_cpu = false);
+  Tracer(uint32_t dst_width, uint32_t dst_height, uint32_t samples_per_pixel, uint32_t max_depth);
   ~Tracer();
 
   int init(const char *kernel_file, const char* model_file, uint32_t mesh_count);
@@ -18,11 +16,9 @@ public:
   int run(const char *output_file);
 
 private:
-  void render();
 
   uint32_t dst_width_;
   uint32_t dst_height_;
-  bool use_cpu_;
 
   Scene *scene_ = nullptr;
 
@@ -37,12 +33,10 @@ private:
   vx_buffer_h texBuffer_ = nullptr;     // store texture data
   vx_buffer_h tlasBuffer_ = nullptr;    // store TLAS nodes
   vx_buffer_h blasBuffer_ = nullptr;    // store BLAS nodes
-  vx_buffer_h bvhBuffer_ = nullptr;     // store BVH nodes
+  //vx_buffer_h bvhBuffer_ = nullptr;     // store BVH nodes
   vx_buffer_h qBvhBuffer_ = nullptr;    // store Quantized BVH nodes
-  vx_buffer_h idxBuffer_ = nullptr;     // store triangle indices
 
   vx_buffer_h sbtBuffer_ = nullptr;
-  //vx_buffer_h shader_buffer_ = nullptr;
   vx_buffer_h miss_shader_buffer_ = nullptr;
   vx_buffer_h closest_hit_shader_buffer_ = nullptr;
   vx_buffer_h intersection_shader_buffer_ = nullptr;

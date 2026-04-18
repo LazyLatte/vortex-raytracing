@@ -21,12 +21,8 @@ const char *model_file = "Sponza/sponza.obj";
 
 uint32_t mesh_count = 1;
 
-bool use_cpu = false;
-
-uint32_t dst_width = 640;
-uint32_t dst_height = 480;
-//uint32_t dst_width = 80;
-//uint32_t dst_height = 60;
+uint32_t dst_width = 64;
+uint32_t dst_height = 64;
 
 float camera_fvf = 45;
 float camera_zoom = 1.0f;
@@ -80,9 +76,6 @@ static void parse_args(int argc, char **argv) {
       case 'o':
         output_file = optarg;
         break;
-      case 'c':
-        use_cpu = true;
-        break;
       default:
         show_usage();
         exit(-1);
@@ -104,7 +97,7 @@ static void parse_args(int argc, char **argv) {
 int main(int argc, char *argv[]) {
   parse_args(argc, argv);
 
-  Tracer tracer(dst_width, dst_height, samples_per_pixel, max_depth, use_cpu);
+  Tracer tracer(dst_width, dst_height, samples_per_pixel, max_depth);
   RT_CHECK(tracer.init(kernel_file, model_file, mesh_count));
   RT_CHECK(tracer.setup(camera_fvf, camera_zoom, light_pos, light_color, ambient_color, background_color));
   RT_CHECK(tracer.run(output_file));

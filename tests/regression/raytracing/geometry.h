@@ -1292,6 +1292,32 @@ inline float3_t TransformVector(const float3_t &a, const mat4_t &M) {
   return make_float3(make_float4(a, 0) * M);
 }
 
+class mat3x4_t {
+public:
+  union {
+    float cell[12] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
+    float m[3][4];
+  };
+
+  mat3x4_t() = default;
+  mat3x4_t(const mat4_t& m){
+    std::copy_n(m.cell, 12, this->cell); 
+  }
+
+  mat4_t toMat4() const {
+    return {
+      m[0][0], m[0][1], m[0][2], m[0][3],
+      m[1][0], m[1][1], m[1][2], m[1][3],
+      m[2][0], m[2][1], m[2][2], m[2][3],
+      0, 0, 0, 1 
+    };
+  }
+
+  mat4_t transposed() const {
+    return this->toMat4().transposed();
+  }
+};
+
 // based on https://github.com/adafruit
 class quat_t {
 public:

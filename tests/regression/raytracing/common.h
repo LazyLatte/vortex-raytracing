@@ -42,13 +42,6 @@ struct tri_ex_t {
   uint32_t texId;
 };
 
-struct ray_hit_t {
-  float    dist = LARGE_FLOAT; // intersection distance along ray
-  float3_t bcoords = {0, 0, 0}; // triangle barycentric coordinates
-  uint32_t blasIdx = 0; // BLAS index
-  uint32_t triIdx = 0;  // triangle index
-};
-
 struct hit_t {
   float t, u, v;
   uint32_t primitiveID;
@@ -105,17 +98,18 @@ struct bvh_node_t {
 
 // bottom-level acceleration structure
 struct blas_node_t {
-  uint32_t bvh_offset = 0; // offset in bvh buffer
-  mat4_t   invTransform; // inverse transformation matrix
-  mat4_t   transform; // transformation matrix
-  uint64_t mat_offset = 0; // offset in texture buffer
-  uint32_t tex_width = 0;
-  uint32_t tex_height = 0;
-  float    reflectivity = 0; // reflectivity factor
+  uint32_t bvh_offset = 0;
+  mat3x4_t invTransform;
+  mat3x4_t transform;
+  uint32_t mat_offset = 0;
+
+  uint8_t padding[24];
 
   void applyTransform(const mat4_t &T) {
-    this->transform = T * this->transform;
-    this->invTransform = this->transform.inverted();
+    mat4_t m = transform.toMat4();
+    m = T * m;
+    this->transform = m;
+    this->invTransform = m.inverted();
   }
 };
 

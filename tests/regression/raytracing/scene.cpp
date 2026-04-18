@@ -91,9 +91,6 @@ int Scene::init() {
     blas_node.mat_offset = mat_offset;
     blas_node.transform = mat4_t::Identity();
     blas_node.invTransform = mat4_t::Identity();
-    // blas_node.tex_width = mesh->texture()->width();
-    // blas_node.tex_height = mesh->texture()->height();
-    blas_node.reflectivity = 0.0;
     // create BVH
 
     auto bvh = new BVH(
