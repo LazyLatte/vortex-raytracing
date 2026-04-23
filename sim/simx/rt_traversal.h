@@ -68,8 +68,8 @@ struct Ray {
 
 struct Hit {
     float t = LARGE_FLOAT, u, v;
-    uint32_t primitiveID;
-    uint32_t instanceID;
+    uint32_t primitiveID; // 32bits
+    uint32_t instanceID; //24 bits
 };
 
 struct ChildIntersection {

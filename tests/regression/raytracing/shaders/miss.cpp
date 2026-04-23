@@ -4,9 +4,12 @@
 #include <vx_raytrace.h>
 
 extern "C" {
-  void _start(uint32_t payload_addr, kernel_arg_t *arg){
-    if(payload_addr == 0) return;
-    ray_payload_t *payload = reinterpret_cast<ray_payload_t*>(payload_addr | 0xF0000000); // address hack
+  void _start(uint32_t rayID, kernel_arg_t *arg){
+    if(rayID == 0) return;
+
+    uint32_t payload_addr = vortex::rt::get_attr(rayID, VX_RT_PAYLOAD_ADDR);
+    vortex::rt::release_ray(rayID);
+    ray_payload_t *payload = reinterpret_cast<ray_payload_t*>(payload_addr);
 
     payload->irradiance += payload->throughput * arg->background_color;
     payload->stop = true;

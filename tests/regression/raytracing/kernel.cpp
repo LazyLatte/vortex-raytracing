@@ -75,7 +75,12 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
               payloads[i].stop = false;
               payloads[i].done = false;
 
-              vortex::rt::traceRay((uint32_t)(&payloads[i]));
+              uint32_t rayID;
+              vortex::rt::trace_ray(
+                ray.orig.x, ray.orig.y, ray.orig.z,
+                ray.dir.x, ray.dir.y, ray.dir.z,
+                (uint32_t)(&payloads[i]), rayID
+              );
             }else{
               payloads[i].stop = true;
               payloads[i].done = true;
@@ -95,7 +100,12 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
             for (uint32_t i = 0; i < BATCH_SIZE; ++i) {
                 if (!payloads[i].stop && payloads[i].bounce < arg->max_depth) {
                     payloads[i].done = false;
-                    vortex::rt::traceRay((uint32_t)(&payloads[i]));
+                    uint32_t rayID;
+                    vortex::rt::trace_ray(
+                      payloads[i].origin.x, payloads[i].origin.y, payloads[i].origin.z,
+                      payloads[i].direction.x, payloads[i].direction.y, payloads[i].direction.z,
+                      (uint32_t)(&payloads[i]), rayID
+                    );
                     any_active = true;
                 }
             }
@@ -129,7 +139,7 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
     auto sbt = reinterpret_cast<uint64_t *>(arg->sbt_addr);
 
     while (*producer_done == 0) {
-      uint32_t ret = vortex::rt::getWork();
+      uint32_t ret = vortex::rt::get_work();
       if (ret != 0) {
         uint32_t type = __builtin_ctz(ret >> 28);
         uint32_t id = ret & 0x0FFFFFFF;

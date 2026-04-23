@@ -5,21 +5,28 @@
 
 extern "C" {
 
-void _start(uint32_t payload_addr, kernel_arg_t *arg){
-  if(payload_addr == 0x00000000) return;
-  
-  ray_payload_t *payload = reinterpret_cast<ray_payload_t*>(payload_addr | 0xF0000000); // address hack
+void _start(uint32_t rayID, kernel_arg_t *arg){
+  if(rayID == 0) return;
 
-  float t  = payload->t;
-  float bx = payload->u;
-  float by = payload->v;
+  uint32_t _t = vortex::rt::get_attr(rayID, VX_RT_HIT_RESULT_T);
+  uint32_t _u = vortex::rt::get_attr(rayID, VX_RT_HIT_RESULT_U);
+  uint32_t _v = vortex::rt::get_attr(rayID, VX_RT_HIT_RESULT_V);
+  uint32_t instanceID = vortex::rt::get_attr(rayID, VX_RT_HIT_RESULT_INSTANCE_ID);
+  uint32_t primitiveID = vortex::rt::get_attr(rayID, VX_RT_HIT_RESULT_PRIMITIVE_ID);
+  uint32_t payload_addr = vortex::rt::get_attr(rayID, VX_RT_PAYLOAD_ADDR);
+  vortex::rt::release_ray(rayID);
+
+  ray_payload_t *payload = reinterpret_cast<ray_payload_t*>(payload_addr);
+  float t  = *reinterpret_cast<float*>(&_t);
+  float bx = *reinterpret_cast<float*>(&_u);
+  float by = *reinterpret_cast<float*>(&_v);
   float bz = 1 - bx - by;
 
   auto triEx_ptr = reinterpret_cast<const tri_ex_t *>(arg->triEx_addr);
-  const tri_ex_t &triEx = triEx_ptr[payload->primitiveID];
+  const tri_ex_t &triEx = triEx_ptr[primitiveID];
 
   auto blas_ptr = reinterpret_cast<const blas_node_t *>(arg->blas_addr);
-  auto &blas = blas_ptr[payload->instanceID];
+  auto &blas = blas_ptr[instanceID];
 
   // intersection point
   float3_t I = payload->origin + payload->direction * t;

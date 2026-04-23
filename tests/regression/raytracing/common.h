@@ -42,8 +42,8 @@ struct tri_ex_t {
   uint32_t texId;
 };
 
-struct hit_t {
-  float t, u, v;
+struct ray_hit_t {
+  float t = LARGE_FLOAT, u, v;
   uint32_t primitiveID;
   uint32_t instanceID;
 };

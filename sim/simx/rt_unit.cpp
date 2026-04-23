@@ -50,18 +50,27 @@ public:
         core_->dcache_write(data, addr, size);
     }
 
-    uint32_t create_ray(uint32_t payload_addr){
-        uint32_t rayID = cur_rayid_++;
-        if(rayID == 0x10000000) rayID = 1;
-        rays_[rayID] = Ray();
-        payload_addrs_[rayID] = payload_addr;
-        return rayID;
+    void init_ray(const std::vector<reg_data_t>& rs1_data, std::vector<reg_data_t>& rd_data){
+        for (uint32_t tid = 0; tid < num_lanes_; tid++) {
+            uint32_t payload_addr = rs1_data[tid].u32;
+
+            uint32_t rayID = cur_rayid_++;
+            if(rayID == 0x10000000) rayID = 1;
+            rays_[rayID] = Ray();
+            payload_addrs_[rayID] = payload_addr;
+            traversal_states_[rayID] = TraversalState();
+            hit_buffer_stall_counts_[rayID] = 0;
+            rd_data[tid].u32 = rayID;
+        }
     }
 
-    void release_ray(uint32_t rayID){
-        rays_.erase(rayID);
-        payload_addrs_.erase(rayID);
-        traversal_states_.erase(rayID);
+    void release_ray(const std::vector<reg_data_t>& rs1_data){
+        for (uint32_t tid = 0; tid < num_lanes_; tid++) {
+            uint32_t rayID = rs1_data[tid].u32;
+
+            hit_buffer_.erase(rayID);
+            payload_addrs_.erase(rayID);
+        }
     }
 
     bool isLeaf(BVHNode *node){ return node->type != BVH_INTERNAL; }
@@ -140,6 +149,7 @@ public:
                         float u, v;
                         float t = ray_tri_intersect(state.ray, tri, u, v);
 
+                        // atomic test-and-set
                         if (t < state.best_hit.t) {
 
                         #ifdef RT_SHADER_ANYHIT_ENABLE
@@ -209,28 +219,28 @@ public:
                }
 
                 case VX_RT_TRAVERSAL_STATUS_FINISHED: {
-                    if(state.root_ptr == tlas_ptr || state.trail[0] == RT_BVH_WIDTH){
+                    if(state.root_ptr == tlas_ptr || state.root_level == 0 || state.trail[0] == RT_BVH_WIDTH){
                         // TLAS Finished
                         if(state.best_hit.t == LARGE_FLOAT){
-                            shader_queues[ShaderType::MISS].push(payload_addrs_[rayID]);
+                            shader_queues[ShaderType::MISS].push(rayID);
                         }else{
-                            shader_queues[ShaderType::CLOSET].push(payload_addrs_[rayID]);
-                            dcache_write(&state.best_hit, payload_addrs_[rayID] + sizeof(Ray), sizeof(Hit));
-                            thread_info.RT_store_transactions.emplace_back(payload_addrs_[rayID], sizeof(Hit), StoreTransactionType::TRAVERSAL_RESULTS);
+                            shader_queues[ShaderType::CLOSET].push(rayID);
+                            if(hit_buffer_.count(rayID) > 0) hit_buffer_stall_counts_[rayID]++;
+                            hit_buffer_[rayID] = state.best_hit;
                         }
-                        release_ray(rayID);
                         exit = true;
                     }else{
                         // BLAS Finished (BLAS -> TLAS)
                         state.ray = rays_[rayID];
                         state.root_ptr = tlas_ptr;
-                        state.root_level = 0;
 
                         if(state.stack.empty()){
                             state.level = 0;
                         }else{
                             state.level = state.root_level;
                         }
+
+                        state.root_level = 0;
                     }
                     break;
                 }
@@ -248,9 +258,7 @@ public:
         tri_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TRI_PTR);
 
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
-            uint32_t payload_addr = rs1_data[tid].u32;
-            uint32_t rayID = create_ray(payload_addr);
-            dcache_read(&rays_[rayID], payload_addr, sizeof(Ray));
+            uint32_t rayID = rs1_data[tid].u32;
             traversal_states_[rayID] = TraversalState(rays_[rayID], tlas_ptr);
             traverse(rayID, trace_data->m_per_scalar_thread[tid]);
         }
@@ -289,8 +297,8 @@ public:
         
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             if(tid < active_lanes){
-                uint32_t data = out_warp[tid];
-                rd_data[tid].u32 = (1 << (28 + type)) | (data & 0x0FFFFFFF); 
+                uint32_t rayID = out_warp[tid];
+                rd_data[tid].u32 = (1 << (28 + type)) | (rayID & 0x0FFFFFFF); 
             }else{
                 rd_data[tid].u32 = (1 << (28 + type)); 
             }
@@ -300,36 +308,89 @@ public:
     void get_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, std::vector<reg_data_t>& rd_data){
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             uint32_t rayID = rs1_data[tid].u32;
+            if(rayID == 0) continue;
+
             uint32_t attrID = rs2_data[tid].u32;
 
             TraversalState& state = traversal_states_[rayID];
 
             switch(attrID){
-                case VX_RT_RAY_RO_X: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.ro_x); break;
-                case VX_RT_RAY_RO_Y: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.ro_y); break;
-                case VX_RT_RAY_RO_Z: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.ro_z); break;
-                case VX_RT_RAY_RD_X: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.rd_x); break;
-                case VX_RT_RAY_RD_Y: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.rd_y); break;
-                case VX_RT_RAY_RD_Z: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.rd_z); break;
+                case VX_RT_WORLD_RAY_RO_X: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].ro_x); break;
+                case VX_RT_WORLD_RAY_RO_Y: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].ro_y); break;
+                case VX_RT_WORLD_RAY_RO_Z: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].ro_z); break;
+                case VX_RT_WORLD_RAY_RD_X: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].rd_x); break;
+                case VX_RT_WORLD_RAY_RD_Y: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].rd_y); break;
+                case VX_RT_WORLD_RAY_RD_Z: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].rd_z); break;
+                
+                case VX_RT_OBJECT_RAY_RO_X: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.ro_x); break;
+                case VX_RT_OBJECT_RAY_RO_Y: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.ro_y); break;
+                case VX_RT_OBJECT_RAY_RO_Z: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.ro_z); break;
+                case VX_RT_OBJECT_RAY_RD_X: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.rd_x); break;
+                case VX_RT_OBJECT_RAY_RD_Y: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.rd_y); break;
+                case VX_RT_OBJECT_RAY_RD_Z: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.rd_z); break;
 
                 case VX_RT_HIT_T: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.hit.t); break;
                 case VX_RT_HIT_U: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.hit.u); break;
                 case VX_RT_HIT_V: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.hit.v); break;
-                case VX_RT_HIT_BLAS_IDX: rd_data[tid].u32 = state.hit.instanceID; break;
-                case VX_RT_HIT_TRI_IDX: rd_data[tid].u32 = state.hit.primitiveID; break;
+                case VX_RT_HIT_INSTANCE_ID: rd_data[tid].u32 = state.hit.instanceID; break;
+                case VX_RT_HIT_PRIMITIVE_ID: rd_data[tid].u32 = state.hit.primitiveID; break;
 
-                case VX_RT_HIT_T_BEST: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.best_hit.t); break;
+                // Hit results are only for CHS
+                case VX_RT_HIT_RESULT_T: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hit_buffer_[rayID].t); break;
+                case VX_RT_HIT_RESULT_U: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hit_buffer_[rayID].u); break;
+                case VX_RT_HIT_RESULT_V: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hit_buffer_[rayID].v); break;
+                case VX_RT_HIT_RESULT_INSTANCE_ID: rd_data[tid].u32 = hit_buffer_[rayID].instanceID; break;
+                case VX_RT_HIT_RESULT_PRIMITIVE_ID: rd_data[tid].u32 = hit_buffer_[rayID].primitiveID; break;
+
+                case VX_RT_PAYLOAD_ADDR: rd_data[tid].u32 = payload_addrs_[rayID]; break;
                 default: rd_data[tid].u32 = 0; break;
             }
         } 
     }
 
-    void commit(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, RtuTraceData* trace_data){
+    void set_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data, uint32_t attr){
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             uint32_t rayID = rs1_data[tid].u32;
-            uint32_t actionID = rs2_data[tid].u32;
+            if(rayID == 0) continue;
+
+            uint32_t rs2 = rs2_data[tid].u32;
+            uint32_t rs3 = rs3_data[tid].u32;
             
-            switch(actionID){
+            float v0 = *reinterpret_cast<float*>(&rs2);
+            float v1 = *reinterpret_cast<float*>(&rs3);
+
+            switch(attr){
+                case VX_RT_RAY_X:
+                    rays_[rayID].ro_x = v0;
+                    rays_[rayID].rd_x = v1;
+                    break;
+                case VX_RT_RAY_Y:
+                    rays_[rayID].ro_y = v0;
+                    rays_[rayID].rd_y = v1;
+                    break;
+                case VX_RT_RAY_Z:
+                    rays_[rayID].ro_z = v0;
+                    rays_[rayID].rd_z = v1;
+                    break;
+                case VX_RT_HIT_T_ID:
+                    traversal_states_[rayID].hit.t = v0;
+                    traversal_states_[rayID].hit.primitiveID = rs3;
+                    break;
+                case VX_RT_HIT_UV:
+                    traversal_states_[rayID].hit.u = v0;
+                    traversal_states_[rayID].hit.v = v1;
+                    break;
+                default: break;
+            }
+        }  
+    }
+
+    void commit(const std::vector<reg_data_t>& rs1_data, uint32_t action, RtuTraceData* trace_data){
+        for (uint32_t tid = 0; tid < num_lanes_; tid++) {
+            uint32_t rayID = rs1_data[tid].u32;
+            if(rayID == 0) continue;
+
+            switch(action){
                 case VX_RT_ANYHIT_IGNORE: 
                 case VX_RT_INTERSECTION_IGNORE:
                     traverse(rayID, trace_data->m_per_scalar_thread[tid]);
@@ -338,23 +399,22 @@ public:
                     traversal_states_[rayID].best_hit = traversal_states_[rayID].hit;
                     traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                     break;
-                default: {
-                    uint32_t hit_addr = actionID;
-
-                    if(hit_addr != 0){
-                        // VX_RT_INTERSECTION_ACCEPT
-                        // Important!! Do not overwrite the instanceID
-                        dcache_read(&traversal_states_[rayID].hit, hit_addr, sizeof(Hit) - 4); 
+                case VX_RT_INTERSECTION_ACCEPT: {
                     #ifdef RT_SHADER_ANYHIT_ENABLE
-                        shader_queues[ShaderType::ANY].push(rayID);
+                        if(traversal_states_[rayID].hit.t < traversal_states_[rayID].best_hit.t){
+                            shader_queues[ShaderType::ANY].push(rayID);
+                        }else{
+                            traverse(rayID, trace_data->m_per_scalar_thread[tid]);
+                        }
                     #else
-                        traversal_states_[rayID].best_hit = traversal_states_[rayID].hit;
+                        if(traversal_states_[rayID].hit.t < traversal_states_[rayID].best_hit.t){
+                            traversal_states_[rayID].best_hit = traversal_states_[rayID].hit;
+                        }
                         traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                     #endif
-                        
-                    }
                     break;
                 }
+                default: break;
             }
         }
     }
@@ -373,9 +433,12 @@ private:
 
     uint32_t cur_rayid_; // 0 as the invalid ray
     std::unordered_map<uint32_t, Ray> rays_;
+    std::unordered_map<uint32_t, Hit> hit_buffer_; // Stored in specialized SRAM in a RT Core
     std::unordered_map<uint32_t, uint32_t> payload_addrs_;
-    std::unordered_map<uint32_t, TraversalState> traversal_states_;
+    std::unordered_map<uint32_t, TraversalState> traversal_states_; // Stored in RT Core Latches/Registers
     std::array<ShaderQueue<RT_SHADER_QUEUE_CAPACITY, NUM_RTU_LANES>, ShaderTypes> shader_queues;
+
+    std::unordered_map<uint32_t, uint32_t> hit_buffer_stall_counts_;
 };
 
 RTUnit::RTUnit(const SimContext &ctx, const char* name, const Arch &arch, const DCRS &dcrs, Core* core)
@@ -405,38 +468,38 @@ const RTUnit::PerfStats &RTUnit::perf_stats() const {
 }
 
 void RTUnit::print_stats() const {
-    PerfStats stats = perf_stats();
-    std::cout << "Total warps: " << stats.rt_total_warps << std::endl;
-    std::cout << "Total warps latency: " << stats.rt_total_warp_latency << std::endl;
-    std::cout << "Avg warp latency: " << stats.rt_total_warp_latency / stats.rt_total_warps << std::endl;
-    std::cout << "Total threads latency: " << stats.rt_total_thread_latency << std::endl;
-    std::cout << "Avg threads latency: " << stats.rt_total_thread_latency / stats.rt_total_warps << std::endl;
-    std::cout << "Avg efficiency: " << stats.rt_total_simt_efficiency / stats.rt_total_warps << std::endl;
+    // PerfStats stats = perf_stats();
+    // std::cout << "Total warps: " << stats.rt_total_warps << std::endl;
+    // std::cout << "Total warps latency: " << stats.rt_total_warp_latency << std::endl;
+    // std::cout << "Avg warp latency: " << stats.rt_total_warp_latency / stats.rt_total_warps << std::endl;
+    // std::cout << "Total threads latency: " << stats.rt_total_thread_latency << std::endl;
+    // std::cout << "Avg threads latency: " << stats.rt_total_thread_latency / stats.rt_total_warps << std::endl;
+    // std::cout << "Avg efficiency: " << stats.rt_total_simt_efficiency / stats.rt_total_warps << std::endl;
 
-    std::cout << "RT active cycles: " << stats.rt_active_cycles << std::endl;
-    std::cout << "RT total cycles: " <<  stats.total_elapsed_cycles << std::endl;
-    std::cout << "RT active rate: " <<  (float)stats.rt_active_cycles / stats.total_elapsed_cycles  << std::endl;
+    // std::cout << "RT active cycles: " << stats.rt_active_cycles << std::endl;
+    // std::cout << "RT total cycles: " <<  stats.total_elapsed_cycles << std::endl;
+    // std::cout << "RT active rate: " <<  (float)stats.rt_active_cycles / stats.total_elapsed_cycles  << std::endl;
 
-    std::string warp_status_names[warp_statuses] = {
-        "warp_stalled",
-        "warp_waiting",
-        "warp_executing"
-    };
+    // std::string warp_status_names[warp_statuses] = {
+    //     "warp_stalled",
+    //     "warp_waiting",
+    //     "warp_executing"
+    // };
 
-    std::string ray_status_names[ray_statuses] = {
-        "awaiting_processing",
-        "awaiting_scheduling",
-        "awaiting_mf",
-        "executing_op",
-        "trace_complete"
-    };
+    // std::string ray_status_names[ray_statuses] = {
+    //     "awaiting_processing",
+    //     "awaiting_scheduling",
+    //     "awaiting_mf",
+    //     "executing_op",
+    //     "trace_complete"
+    // };
 
-    for (unsigned i=0; i<warp_statuses; i++) {
-        std::cout << warp_status_names[i].c_str() << std::endl;
-        for (unsigned j=0; j<ray_statuses; j++) {
-            std::cout << "=> " << ray_status_names[j].c_str() << ": " << stats.rt_latency_dist[i][j] / stats.rt_latency_counter << std::endl;
-        }
-    }
+    // for (unsigned i=0; i<warp_statuses; i++) {
+    //     std::cout << warp_status_names[i].c_str() << std::endl;
+    //     for (unsigned j=0; j<ray_statuses; j++) {
+    //         std::cout << "=> " << ray_status_names[j].c_str() << ": " << stats.rt_latency_dist[i][j] / stats.rt_latency_counter << std::endl;
+    //     }
+    // }
 
     // const char * filename = "latencies.csv";
     // std::ofstream outFile(filename);
@@ -464,6 +527,14 @@ void RTUnit::dcache_write(const void* data, uint64_t addr, uint32_t size){
     impl_->dcache_write(data, addr, size);
 }
 
+void RTUnit::init_ray(const std::vector<reg_data_t>& rs1_data, std::vector<reg_data_t>& rd_data){
+    impl_->init_ray(rs1_data, rd_data);
+}
+
+void RTUnit::set_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data, uint32_t attr){
+    impl_->set_attr(rs1_data, rs2_data, rs3_data, attr);
+}
+
 void RTUnit::traverse(const std::vector<reg_data_t>& rs1_data, RtuTraceData* trace_data){
     impl_->traverse(rs1_data, trace_data);
 }
@@ -476,6 +547,10 @@ void RTUnit::get_attr(const std::vector<reg_data_t>& rs1_data, const std::vector
     impl_->get_attr(rs1_data, rs2_data, rd_data);
 }
 
-void RTUnit::commit(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, RtuTraceData* trace_data){
-    impl_->commit(rs1_data, rs2_data, trace_data);
+void RTUnit::commit(const std::vector<reg_data_t>& rs1_data, uint32_t action, RtuTraceData* trace_data){
+    impl_->commit(rs1_data, action, trace_data);
+}
+
+void RTUnit::release_ray(const std::vector<reg_data_t>& rs1_data){
+    impl_->release_ray(rs1_data);
 }

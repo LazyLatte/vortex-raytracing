@@ -10,11 +10,6 @@ struct ray_payload_t {
   float3_t origin;
   float3_t direction;
 
-  // Hit Data
-  float t, u, v;
-  uint32_t primitiveID;
-  uint32_t instanceID;
-
   float3_t throughput;
   float3_t irradiance;
 
@@ -52,6 +47,4 @@ float3_t diffuseLighting(const float3_t& pixel,
   return diffuse_color * (ambient_color + att * light_color * NdotL);
 }
 
-float3_t reflect(const float3_t& P, const float3_t& N){
-  return normalize(P - 2.0f * N * dot(N, P));
-}
+float3_t reflect(const float3_t& P, const float3_t& N){ return normalize(P - 2.0f * N * dot(N, P)); }

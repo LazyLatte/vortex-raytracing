@@ -1595,6 +1595,10 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
     ,[&](RtuType rtu_type) {
       auto rtuArgs = std::get<IntrRtuArgs>(instrArgs);
       switch (rtu_type) {
+      case RtuType::INIT_RAY: {
+        core_->rt_unit()->init_ray(rs1_data, rd_data);
+        rd_write = true;
+      } break;
       case RtuType::TRACE: {
         auto trace_data = std::make_shared<RtuTraceData>(num_threads);
         trace->data = trace_data;
@@ -1608,10 +1612,16 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
         core_->rt_unit()->get_attr(rs1_data, rs2_data, rd_data);
         rd_write = true;
       } break;
-      case RtuType::COMMIT: {    
+      case RtuType::SET_ATTR: {
+        core_->rt_unit()->set_attr(rs1_data, rs2_data, rs3_data, rtuArgs.imm);
+      } break;
+      case RtuType::COMMIT: {   
         auto trace_data = std::make_shared<RtuTraceData>(num_threads);
         trace->data = trace_data;    
-        core_->rt_unit()->commit(rs1_data, rs2_data, trace_data.get());
+        core_->rt_unit()->commit(rs1_data, rtuArgs.imm, trace_data.get());
+      } break;
+      case RtuType::RELEASE: {    
+        core_->rt_unit()->release_ray(rs1_data);
       } break;
       default:
         std::abort();

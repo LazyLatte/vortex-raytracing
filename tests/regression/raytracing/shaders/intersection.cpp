@@ -6,13 +6,14 @@
 extern "C" {
 void _start(uint32_t rayID, kernel_arg_t *arg){
     if(rayID == 0) return;
-    uint32_t ox = vortex::rt::getAttr(rayID, VX_RT_RAY_RO_X);
-    uint32_t oy = vortex::rt::getAttr(rayID, VX_RT_RAY_RO_Y);
-    uint32_t oz = vortex::rt::getAttr(rayID, VX_RT_RAY_RO_Z);
 
-    uint32_t dx = vortex::rt::getAttr(rayID, VX_RT_RAY_RD_X);
-    uint32_t dy = vortex::rt::getAttr(rayID, VX_RT_RAY_RD_Y);
-    uint32_t dz = vortex::rt::getAttr(rayID, VX_RT_RAY_RD_Z);
+    uint32_t ox = vortex::rt::get_attr(rayID, VX_RT_OBJECT_RAY_RO_X);
+    uint32_t oy = vortex::rt::get_attr(rayID, VX_RT_OBJECT_RAY_RO_Y);
+    uint32_t oz = vortex::rt::get_attr(rayID, VX_RT_OBJECT_RAY_RO_Z);
+    uint32_t dx = vortex::rt::get_attr(rayID, VX_RT_OBJECT_RAY_RD_X);
+    uint32_t dy = vortex::rt::get_attr(rayID, VX_RT_OBJECT_RAY_RD_Y);
+    uint32_t dz = vortex::rt::get_attr(rayID, VX_RT_OBJECT_RAY_RD_Z);
+    uint32_t node_addr = vortex::rt::get_attr(rayID, VX_RT_HIT_PRIMITIVE_ID);
 
     float ro_x = *reinterpret_cast<float*>(&ox);
     float ro_y = *reinterpret_cast<float*>(&oy);
@@ -25,21 +26,16 @@ void _start(uint32_t rayID, kernel_arg_t *arg){
     ray.orig = make_float3(ro_x, ro_y, ro_z);
     ray.dir = make_float3(rd_x, rd_y, rd_z);
     
-    uint32_t node_addr = vortex::rt::getAttr(rayID, VX_RT_HIT_TRI_IDX);
     bvh_quantized_node_t* node = reinterpret_cast<bvh_quantized_node_t*>(node_addr);
 
-    uint32_t bt = vortex::rt::getAttr(rayID, VX_RT_HIT_T_BEST);
-
-    hit_t hit;
-    hit.t = *reinterpret_cast<float*>(&bt);
-
-    // intersection logic
     auto tri_ptr = reinterpret_cast<const tri_t *>(arg->tri_addr);
 
     uint32_t leftFirst = node->leftFirst;
     uint32_t triCount = node->leaf.primCount;
 
-    bool hit_found = false;
+    ray_hit_t hit;
+
+    // intersection logic
     for (uint32_t i = 0; i < triCount; ++i) {
         uint32_t triIdx = leftFirst + i;                    
         const tri_t& tri = tri_ptr[triIdx];
@@ -88,15 +84,13 @@ void _start(uint32_t rayID, kernel_arg_t *arg){
             hit.u = u;
             hit.v = v;
             hit.primitiveID = triIdx;
-
-            hit_found = true;
         }
     }
 
-    if(hit_found){
-        vortex::rt::commit(rayID, (uint32_t)(&hit));
+    if(hit.t < LARGE_FLOAT){
+        vortex::rt::commit(rayID, hit.t, hit.u, hit.v, hit.primitiveID);
     }else{
-        vortex::rt::commit(rayID, VX_RT_INTERSECTION_IGNORE);
+        vortex::rt::commit<VX_RT_INTERSECTION_IGNORE>(rayID);
     }
 }
 }

@@ -144,7 +144,7 @@ bool RtuTraceData::rt_intersection_delay_done() {
 }
 
 unsigned RtuTraceData::get_rt_active_threads() {
-    assert(m_per_scalar_thread_valid);
+    //assert(m_per_scalar_thread_valid);
     unsigned active_threads = 0;
     for (auto it=m_per_scalar_thread.begin(); it!=m_per_scalar_thread.end(); it++) {
         if (!it->RT_mem_accesses.empty()) {
@@ -155,7 +155,7 @@ unsigned RtuTraceData::get_rt_active_threads() {
 }
 
 std::deque<uint32_t> RtuTraceData::get_rt_active_thread_list() {
-    assert(m_per_scalar_thread_valid);
+    //assert(m_per_scalar_thread_valid);
     std::deque<uint32_t> active_threads;
     for (unsigned i=0; i<m_per_scalar_thread.size(); i++) {
         if (!m_per_scalar_thread[i].RT_mem_accesses.empty()) {
