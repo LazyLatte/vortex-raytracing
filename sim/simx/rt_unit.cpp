@@ -5,9 +5,10 @@
 #include <cassert>
 #include <fstream>
 
-#define NODE_ADDR(root, idx) root + idx * sizeof(BVHNode)
-#define INSTANCE_ADDR(root, idx) root + idx * sizeof(BLASNode)
-#define PRIMITIVE_ADDR(root, idx) root + idx * sizeof(Triangle)
+#define NODE_ADDR(root, idx) root + (idx) * sizeof(BVHNode)
+#define INSTANCE_ADDR(root, idx) root + (idx) * sizeof(BLASNode)
+#define TRI_ADDR(root, idx) root + (idx) * sizeof(Triangle)
+#define PRIMITIVE_ADDR(root, idx) root + (idx) * sizeof(AABB)
 
 using namespace vortex;
 
@@ -80,96 +81,75 @@ public:
         uint32_t node_ptr, status;
         if(state.level == state.root_level){
             node_ptr = state.root_ptr;
-            status = VX_RT_TRAVERSAL_STATUS_CONTINUE;
+            status = TraversalStatus::CONTINUE;
         }else{
             status = state.pop(node_ptr);
         }
 
-        while(status == VX_RT_TRAVERSAL_STATUS_CONTINUE){
+        while(status == TraversalStatus::CONTINUE){
             BVHNode node;
             dcache_read(&node, node_ptr, sizeof(BVHNode));
             thread_info.RT_mem_accesses.emplace_back(node_ptr, sizeof(BVHNode), TransactionType::BVH_INTERNAL_NODE);
 
             if(!isLeaf(&node)){
-                std::vector<ChildIntersection> intersections;
-                ray_nBox_intersect(state.ray, node, state.best_hit.t, intersections);
-
-                std::sort(intersections.begin(), intersections.end(), [](const ChildIntersection &a, const ChildIntersection &b) {
-                    return a.dist > b.dist; //farthest ------> closest
-                });
+                std::array<BoxHit, RT_BOX_INTERSECTION_SIMD_WIDTH> box_hits;
+                uint32_t valid_count = ray_nBox_intersect(node, state, box_hits); // SIMD intersection
 
                 uint32_t k = state.trail[state.level];
-                uint32_t dropCount = (k == RT_BVH_WIDTH) ? intersections.size() - 1 : k;
-                for(int i=0; i<dropCount; i++){
-                    if(intersections.size() > 0){
-                        intersections.pop_back();
-                    }
-                }
-                
-                if(intersections.size() == 0){
+                uint32_t start = (k == RT_BVH_WIDTH) ? valid_count - 1 : k;
+                uint32_t end = valid_count;
+
+                if(valid_count == 0 || start >= end){
                     status = state.pop(node_ptr);
                 }else{
-                    ChildIntersection closest = intersections.back();
-                    intersections.pop_back();
+                    std::sort(box_hits.begin(), box_hits.end(), BoxHit::compare);
 
-                    uint32_t nodeIdx = node.leftFirst + closest.childIdx;
-                    node_ptr = NODE_ADDR(state.root_ptr, nodeIdx);
+                    BoxHit closest = box_hits[start++];
+                    node_ptr = NODE_ADDR(state.root_ptr, node.leftFirst + closest.idx);
                     
-                    if(intersections.size() == 0){
+                    if(start == end){
                         state.trail[state.level] = RT_BVH_WIDTH;
                     }else{
-                        for(auto iter = intersections.begin(); iter != intersections.end(); iter++){
-                            nodeIdx = node.leftFirst + (*iter).childIdx;
-                            state.stack.push({NODE_ADDR(state.root_ptr, nodeIdx), iter == intersections.begin()});
+                        for (int32_t i = (int32_t)end - 1; i >= (int32_t)start; i--) {
+                            uint32_t node_addr = NODE_ADDR(state.root_ptr, node.leftFirst + box_hits[i].idx);
+                            bool isFarthest = (i == end - 1);
+                            state.stack.push(node_addr | isFarthest); // encode one bit info into addr
                         }
                     }
                     state.level++;
                 }
-
             }else{
                 //Leaf Node
                 if(isInstanceLeaf(&node)){
-                    state.hit.instanceID = node.leaf.primCount;
-                    status = VX_RT_TRAVERSAL_STATUS_INSTANCE_HIT;
+                    state.instanceID = node.leaf.instanceID;
+                    return TraversalStatus::INSTANCE_HIT;
                 }else{
                 #ifdef RT_SHADER_INTERSECTION_ENABLE
                     state.hit.primitiveID = node_ptr;
-                    return VX_RT_TRAVERSAL_STATUS_TO_INTERSECTION_SHADER;
+                    return TraversalStatus::TO_INTERSECTION_SHADER;
                 #else
-                    uint32_t leftFirst = node.leftFirst;
+                    uint32_t triBaseID = node.leftFirst;
                     uint32_t triCount = node.leaf.primCount;
+                    uint32_t tri_base_addr = TRI_ADDR(tri_ptr, triBaseID);
+                    uint32_t tri_tot_size = sizeof(Triangle) * triCount;
 
-                    for (uint32_t i = 0; i < triCount; ++i) {
-                        uint32_t triIdx = leftFirst + i;                    
-                        uint32_t tri_addr = tri_ptr + triIdx * sizeof(Triangle);
+                    assert(4 == RT_TRI_INTERSECTION_SIMD_WIDTH);
+                    assert(triCount <= RT_TRI_INTERSECTION_SIMD_WIDTH);
 
-                        Triangle tri;
-                        dcache_read(&tri, tri_addr, sizeof(Triangle));
-                        
-                        float u, v;
-                        float t = ray_tri_intersect(state.ray, tri, u, v);
+                    Triangle tris[RT_TRI_INTERSECTION_SIMD_WIDTH];
+                    dcache_read(&tris[0], tri_base_addr, tri_tot_size);
+                    thread_info.RT_mem_accesses.emplace_back(tri_base_addr, tri_tot_size, TransactionType::BVH_QUAD_LEAF);
 
-                        // atomic test-and-set
-                        if (t < state.best_hit.t) {
+                    std::array<Hit, RT_TRI_INTERSECTION_SIMD_WIDTH> tri_hits;
+                    uint8_t valid_mask = ray_nTri_intersect(tris, triBaseID, triCount, state, tri_hits); // SIMD Intersection
 
-                        #ifdef RT_SHADER_ANYHIT_ENABLE
-                            state.hit.t = t;
-                            state.hit.u = u;
-                            state.hit.v = v;
-                            state.hit.primitiveID = triIdx;
-                            
-                            return VX_RT_TRAVERSAL_STATUS_TO_ANYHIT_SHADER;
-                        #else
-                            state.best_hit.t = t;
-                            state.best_hit.u = u;
-                            state.best_hit.v = v;
-                            state.best_hit.instanceID = state.hit.instanceID;
-                            state.best_hit.primitiveID = triIdx;
-                        #endif
-                        } 
+                    if(valid_mask != 0){
+                        // Comparator Tree
+                        Hit h0 = Hit::compare(tri_hits[0], tri_hits[1]);
+                        Hit h1 = Hit::compare(tri_hits[2], tri_hits[3]);
+                        state.best_hit = Hit::compare(h0, h1);
                     }
 
-                    thread_info.RT_mem_accesses.emplace_back(tri_ptr + leftFirst * sizeof(Triangle), 64, TransactionType::BVH_QUAD_LEAF);
                     status = state.pop(node_ptr);
                 #endif
                 }
@@ -189,36 +169,36 @@ public:
             uint32_t status = traverse(state, thread_info);
 
             switch(status){
-                case VX_RT_TRAVERSAL_STATUS_INSTANCE_HIT:{
+                case TraversalStatus::INSTANCE_HIT:{
                     // TLAS -> BLAS
                     BLASNode blas;
-                    uint32_t instance_ptr = INSTANCE_ADDR(blas_ptr, state.hit.instanceID);
-                    dcache_read(&blas, instance_ptr, sizeof(BLASNode));
-                    thread_info.RT_mem_accesses.emplace_back(instance_ptr, sizeof(BLASNode), TransactionType::BVH_INSTANCE_LEAF);
+                    uint32_t instance_ptr = INSTANCE_ADDR(blas_ptr, state.instanceID);
+                    dcache_read(&blas, instance_ptr, 52);
+                    thread_info.RT_mem_accesses.emplace_back(instance_ptr, 52, TransactionType::BVH_INSTANCE_LEAF);
                     state.ray = ray_transform(rays_[rayID], blas.invTransform);
                     state.root_ptr = NODE_ADDR(qBvh_ptr, blas.bvh_offset);
                     state.root_level = state.level;
                     break;
                 }
 
-                case VX_RT_TRAVERSAL_STATUS_RESTART: {
+                case TraversalStatus::RESTART: {
                     state.level = state.root_level;
                     break;
                 }
 
-               case VX_RT_TRAVERSAL_STATUS_TO_ANYHIT_SHADER: {
+               case TraversalStatus::TO_ANYHIT_SHADER: {
                     shader_queues[ShaderType::ANY].push(rayID);
                     exit = true;
                     break;
                }
 
-               case VX_RT_TRAVERSAL_STATUS_TO_INTERSECTION_SHADER: {
+               case TraversalStatus::TO_INTERSECTION_SHADER: {
                     shader_queues[ShaderType::INTERSECTION].push(rayID);
                     exit = true;
                     break;
                }
 
-                case VX_RT_TRAVERSAL_STATUS_FINISHED: {
+                case TraversalStatus::FINISHED: {
                     if(state.root_ptr == tlas_ptr || state.root_level == 0 || state.trail[0] == RT_BVH_WIDTH){
                         // TLAS Finished
                         if(state.best_hit.t == LARGE_FLOAT){
@@ -332,8 +312,8 @@ public:
                 case VX_RT_HIT_T: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.hit.t); break;
                 case VX_RT_HIT_U: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.hit.u); break;
                 case VX_RT_HIT_V: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.hit.v); break;
-                case VX_RT_HIT_INSTANCE_ID: rd_data[tid].u32 = state.hit.instanceID; break;
-                case VX_RT_HIT_PRIMITIVE_ID: rd_data[tid].u32 = state.hit.primitiveID; break;
+                // case VX_RT_HIT_INSTANCE_ID: rd_data[tid].u32 = state.hit.instanceID; break;
+                // case VX_RT_HIT_PRIMITIVE_ID: rd_data[tid].u32 = state.hit.primitiveID; break;
 
                 // Hit results are only for CHS
                 case VX_RT_HIT_RESULT_T: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hit_buffer_[rayID].t); break;

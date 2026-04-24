@@ -13,6 +13,8 @@
 
 namespace vortex {
 
+struct AABB { float min[3], max[3]; };
+
 struct BVHChildData {
     uint8_t meta;
     uint8_t qaabb[6];
@@ -38,13 +40,15 @@ struct BVHNode {
         // --- LEAF ---
         struct {
             uint32_t shaderIndex;   // Which intersection shader to trigger
-            uint32_t primCount;     // Number of primitives in this leaf
+            union {
+                uint32_t instanceID;
+                uint32_t primCount;
+            };
             // uint32_t primStride;    // Size of each primitive (bytes)
             // uint32_t rayMask;       // Culling mask
             
-            // "Immediate Data" cache: 49 bytes remaining
             // Can fit 1 Triangle, 2 Spheres, or 10 AABB-only pointers.
-            uint8_t  payload[48];   
+            uint8_t payload[48];   
         } leaf;
     };
 };
@@ -69,30 +73,22 @@ struct Ray {
 struct Hit {
     float t = LARGE_FLOAT, u, v;
     uint32_t primitiveID; // 32bits
-    uint32_t instanceID; //24 bits
+    uint32_t instanceID; // 24bits
+
+    static Hit compare(const Hit& a, const Hit& b) { return (a.t < b.t) ? a : b; }
 };
 
-struct ChildIntersection {
-    float dist;
-    uint32_t childIdx;
+struct BoxHit {
+    float t = LARGE_FLOAT;
+    uint32_t idx; // child index: 0 ~ RT_BVH_WIDTH-1
 
-    ChildIntersection(float _dist, uint32_t _childIdx)
-        : dist(_dist)
-        , childIdx(_childIdx)
-    {}
+    static bool compare(const BoxHit& a, const BoxHit& b) { return a.t < b.t; }
 };
 
-struct TraversalStackEntry {
-    uint32_t node_ptr;
-    bool last;
-
-    TraversalStackEntry() : node_ptr(0), last(false) {}
-    TraversalStackEntry(uint32_t _node_ptr) : node_ptr(_node_ptr), last(false) {}
-    TraversalStackEntry(uint32_t _node_ptr, bool _last) : node_ptr(_node_ptr), last(_last) {}
-};
-
-typedef ShortStack<TraversalStackEntry, RT_STACK_SIZE> TraversalStack;
+typedef ShortStack<uint32_t, RT_STACK_SIZE> TraversalStack;
 typedef std::array<uint32_t, MAX_TRAIL_LEVEL> TraversalTrail; //trail[i]: 0 ~ BVH_WIDTH
+
+enum TraversalStatus {FINISHED, CONTINUE, RESTART, INSTANCE_HIT, LEAF_HIT, TO_ANYHIT_SHADER, TO_INTERSECTION_SHADER };
 
 struct TraversalState {
     Ray ray;
@@ -102,6 +98,7 @@ struct TraversalState {
     uint32_t root_ptr;
     uint32_t root_level;
     uint32_t level;
+    uint32_t instanceID;
     
     TraversalState(){}
     TraversalState(Ray ray, uint32_t root_ptr){
@@ -113,6 +110,7 @@ struct TraversalState {
         this->root_ptr = root_ptr;
         this->root_level = 0;
         this->level = 0;
+        this->instanceID = 0xffffffff;
     }
 
     int32_t findNextParentLevel(){
@@ -128,7 +126,7 @@ struct TraversalState {
         int32_t parentLevel = findNextParentLevel();
 
         if(parentLevel < 0){
-            return VX_RT_TRAVERSAL_STATUS_FINISHED;
+            return TraversalStatus::FINISHED;
         }
 
         trail[parentLevel]++;
@@ -138,17 +136,18 @@ struct TraversalState {
         }
 
         if(stack.empty()){
-            return VX_RT_TRAVERSAL_STATUS_RESTART;
+            return TraversalStatus::RESTART;
         }
 
-        auto e = stack.pop();
-        node_ptr = e.node_ptr;
-        if(e.last){
+        uint32_t e = stack.pop();
+        node_ptr = e & 0xfffffffe;
+
+        if(e & 1){
             trail[parentLevel] = RT_BVH_WIDTH;
         }
 
         level = parentLevel + 1;
-        return VX_RT_TRAVERSAL_STATUS_CONTINUE; 
+        return TraversalStatus::CONTINUE; 
     }
 };
 
@@ -192,7 +191,8 @@ float ray_box_intersect(const Ray &ray, float min_x, float min_y, float min_z, f
     return tmax < tmin || tmax <= 0 ? LARGE_FLOAT : tmin;
 }
 
-void ray_nBox_intersect(const Ray &ray, BVHNode& node, float t, std::vector<ChildIntersection>& intersections){
+uint32_t ray_nBox_intersect(BVHNode& node, TraversalState& state, std::array<BoxHit, RT_BOX_INTERSECTION_SIMD_WIDTH>& box_hits){
+    uint32_t valid_count = 0;
     for(int i=0; i<RT_BVH_WIDTH; i++){
         if(node.internal.children[i].meta == 0) continue;
         float min_x = node.internal.px + std::ldexp(float(node.internal.children[i].qaabb[0]), node.ex);
@@ -203,12 +203,15 @@ void ray_nBox_intersect(const Ray &ray, BVHNode& node, float t, std::vector<Chil
         float max_y = node.internal.py + std::ldexp(float(node.internal.children[i].qaabb[4]), node.ey);
         float max_z = node.internal.pz + std::ldexp(float(node.internal.children[i].qaabb[5]), node.ez);
 
-        float d = ray_box_intersect(ray, min_x, min_y, min_z, max_x, max_y, max_z);
+        float t = ray_box_intersect(state.ray, min_x, min_y, min_z, max_x, max_y, max_z);
 
-        if(d < t){
-            intersections.emplace_back(d, i);
+        if(t < state.best_hit.t){
+            box_hits[i].t = t;
+            box_hits[i].idx = i;
+            valid_count++;
         }
     }
+    return valid_count;
 }
 
 float ray_tri_intersect(const Ray &ray, const Triangle &tri, float &u, float &v){
@@ -263,6 +266,25 @@ float ray_tri_intersect(const Ray &ray, const Triangle &tri, float &u, float &v)
     u = w1;
     v = w2;
     return tf;
+}
+
+uint8_t ray_nTri_intersect(Triangle* tris, uint32_t triBaseID, uint32_t triCount, TraversalState& state, std::array<Hit, RT_TRI_INTERSECTION_SIMD_WIDTH>& tri_hits){
+    uint8_t valid_mask = 0;
+    for(int i=0; i<triCount; i++){        
+        float u, v;
+        float t = ray_tri_intersect(state.ray, tris[i], u, v);
+
+        if (t < state.best_hit.t) {
+            tri_hits[i].t = t;
+            tri_hits[i].u = u;
+            tri_hits[i].v = v;
+            tri_hits[i].primitiveID = triBaseID + i;
+            tri_hits[i].instanceID = state.instanceID;
+
+            valid_mask |= (1 << i);
+        }   
+    }
+    return valid_mask;
 }
 
 }

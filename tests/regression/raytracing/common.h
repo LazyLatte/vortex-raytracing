@@ -74,8 +74,11 @@ struct bvh_quantized_node_t {
       // --- LEAF ---
       struct {
           uint32_t shaderIndex;
-          uint32_t primCount;
-          uint8_t  payload[48];   
+          union {
+            uint32_t instanceID;
+            uint32_t primCount;
+          };
+          uint8_t payload[48];   
       } leaf;
   };
 };

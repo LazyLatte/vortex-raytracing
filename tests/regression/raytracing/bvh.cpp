@@ -623,7 +623,7 @@ void TLAS::quantize(){
       }
     }else{
       qNode.type = INSTANCE_LEAF;
-      qNode.leaf.primCount = node.blasIdx;
+      qNode.leaf.instanceID = node.blasIdx;
     }
     // std::cout << "Node " << i << ": " << qNode.leftFirst << " " << qNode.leafIdx << " " << node.childCount << std::endl;
   }
