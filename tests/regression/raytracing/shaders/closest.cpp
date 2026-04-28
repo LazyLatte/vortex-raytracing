@@ -8,12 +8,12 @@ extern "C" {
 void _start(uint32_t rayID, kernel_arg_t *arg){
   if(rayID == 0) return;
 
-  uint32_t _t = vortex::rt::get_attr(rayID, VX_RT_HIT_RESULT_T);
-  uint32_t _u = vortex::rt::get_attr(rayID, VX_RT_HIT_RESULT_U);
-  uint32_t _v = vortex::rt::get_attr(rayID, VX_RT_HIT_RESULT_V);
-  uint32_t instanceID = vortex::rt::get_attr(rayID, VX_RT_HIT_RESULT_INSTANCE_ID);
-  uint32_t primitiveID = vortex::rt::get_attr(rayID, VX_RT_HIT_RESULT_PRIMITIVE_ID);
-  uint32_t payload_addr = vortex::rt::get_attr(rayID, VX_RT_PAYLOAD_ADDR);
+  uint32_t _t = vortex::rt::get_attr<VX_RT_HIT_RESULT_T>(rayID);
+  uint32_t _u = vortex::rt::get_attr<VX_RT_HIT_RESULT_U>(rayID);
+  uint32_t _v = vortex::rt::get_attr<VX_RT_HIT_RESULT_V>(rayID);
+  uint32_t instanceID = vortex::rt::get_attr<VX_RT_HIT_RESULT_INSTANCE_ID>(rayID);
+  uint32_t primitiveID = vortex::rt::get_attr<VX_RT_HIT_RESULT_PRIMITIVE_ID>(rayID);
+  uint32_t payload_addr = vortex::rt::get_attr<VX_RT_PAYLOAD_ADDR>(rayID);
   vortex::rt::release_ray(rayID);
 
   ray_payload_t *payload = reinterpret_cast<ray_payload_t*>(payload_addr);

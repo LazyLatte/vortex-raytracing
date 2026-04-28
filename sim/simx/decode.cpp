@@ -1318,10 +1318,10 @@ void Emulator::decode(uint32_t code, uint32_t wid, uint64_t uuid) {
       } break;
       case 2: { // Get Attr
         auto i_get_attr = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
-        i_get_attr->setArgs(IntrRtuArgs{});
+        i_get_attr->setArgs(IntrRtuArgs{rs1}); // attrID
         i_get_attr->setOpType(RtuType::GET_ATTR);
-        i_get_attr->setSrcReg(0, rs1, RegType::Integer); // rayID
-        i_get_attr->setSrcReg(1, rs2, RegType::Integer); // attrID
+        i_get_attr->setSrcReg(0, 10, RegType::Integer); // rayID at x10
+        i_get_attr->setSrcReg(1, rs2, RegType::Integer); // hitID at rs2
         i_get_attr->setDestReg(rd, RegType::Integer);
         ibuffer.push_back(i_get_attr);
       } break;
@@ -1329,12 +1329,13 @@ void Emulator::decode(uint32_t code, uint32_t wid, uint64_t uuid) {
         auto i_commit = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
         i_commit->setArgs(IntrRtuArgs{rs1}); // actionID
         i_commit->setOpType(RtuType::COMMIT);
-        i_commit->setSrcReg(0, 1, RegType::Integer); // rayID at x1
+        i_commit->setSrcReg(0, 10, RegType::Integer); // rayID at x10
+        i_commit->setSrcReg(1, rs2, RegType::Integer); // hitID at rs2
         ibuffer.push_back(i_commit);
       } break;
       case 4: { // Commit Hit
         uint32_t steps = 0;
-        uint32_t steps_count = 3;
+        uint32_t steps_count = 4;
         uint32_t steps_shift = 32 - log2ceil(steps_count);
         uint32_t uuid_hi = (uuid >> 32) & 0xffffffff;
         uint32_t uuid_lo = uuid & 0xffffffff;
@@ -1342,24 +1343,35 @@ void Emulator::decode(uint32_t code, uint32_t wid, uint64_t uuid) {
         uint32_t uuid_lo_x = (steps << steps_shift) | uuid_lo;
         uint64_t uuid_x = (static_cast<uint64_t>(uuid_hi) << 32) | uuid_lo_x;
 
-        auto i_set_hit = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
-        i_set_hit->setArgs(IntrRtuArgs{VX_RT_HIT_T_ID});
-        i_set_hit->setOpType(RtuType::SET_ATTR);
-        i_set_hit->setSrcReg(0, rs1, RegType::Integer); // rayID
-        i_set_hit->setSrcReg(1, rs2 + 0, RegType::Float); // t
-        i_set_hit->setSrcReg(2, rs2 + 3, RegType::Integer); // primitiveID
-        ibuffer.push_back(i_set_hit);
+        auto i_set_t_val = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
+        i_set_t_val->setArgs(IntrRtuArgs{VX_RT_HIT_T});
+        i_set_t_val->setOpType(RtuType::SET_ATTR);
+        i_set_t_val->setSrcReg(0, rs1 + 0, RegType::Integer); // rayID
+        i_set_t_val->setSrcReg(1, rs2 + 0, RegType::Integer); // hitID
+        i_set_t_val->setSrcReg(2, rs2 + 1, RegType::Float); // t
+        ibuffer.push_back(i_set_t_val);
         steps++;
 
         uuid_lo_x = (steps << steps_shift) | uuid_lo;
         uuid_x = (static_cast<uint64_t>(uuid_hi) << 32) | uuid_lo_x;
-        auto i_set_uv = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
-        i_set_uv->setArgs(IntrRtuArgs{VX_RT_HIT_UV});
-        i_set_uv->setOpType(RtuType::SET_ATTR);
-        i_set_uv->setSrcReg(0, rs1, RegType::Integer); // rayID
-        i_set_uv->setSrcReg(1, rs2 + 1, RegType::Float); // u
-        i_set_uv->setSrcReg(2, rs2 + 2, RegType::Float); // v
-        ibuffer.push_back(i_set_uv);
+        auto i_set_u_val = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
+        i_set_u_val->setArgs(IntrRtuArgs{VX_RT_HIT_U});
+        i_set_u_val->setOpType(RtuType::SET_ATTR);
+        i_set_u_val->setSrcReg(0, rs1 + 0, RegType::Integer); // rayID
+        i_set_u_val->setSrcReg(1, rs2 + 0, RegType::Integer); // hitID
+        i_set_u_val->setSrcReg(2, rs2 + 2, RegType::Float); // u
+        ibuffer.push_back(i_set_u_val);
+        steps++;
+
+        uuid_lo_x = (steps << steps_shift) | uuid_lo;
+        uuid_x = (static_cast<uint64_t>(uuid_hi) << 32) | uuid_lo_x;
+        auto i_set_v_val = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
+        i_set_v_val->setArgs(IntrRtuArgs{VX_RT_HIT_V});
+        i_set_v_val->setOpType(RtuType::SET_ATTR);
+        i_set_v_val->setSrcReg(0, rs1 + 0, RegType::Integer); // rayID
+        i_set_v_val->setSrcReg(1, rs2 + 0, RegType::Integer); // hitID
+        i_set_v_val->setSrcReg(2, rs2 + 3, RegType::Float); // v
+        ibuffer.push_back(i_set_v_val);
         steps++;
 
         uuid_lo_x = (steps << steps_shift) | uuid_lo;
@@ -1367,7 +1379,8 @@ void Emulator::decode(uint32_t code, uint32_t wid, uint64_t uuid) {
         auto i_commit = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
         i_commit->setArgs(IntrRtuArgs{VX_RT_INTERSECTION_ACCEPT}); // actionID
         i_commit->setOpType(RtuType::COMMIT);
-        i_commit->setSrcReg(0, rs1, RegType::Integer); // rayID
+        i_commit->setSrcReg(0, rs1 + 0, RegType::Integer); // rayID
+        i_commit->setSrcReg(1, rs2 + 0, RegType::Integer); // hitID
         ibuffer.push_back(i_commit);
       } break;
       case 5: { // Release

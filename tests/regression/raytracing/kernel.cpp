@@ -75,11 +75,11 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
               payloads[i].stop = false;
               payloads[i].done = false;
 
-              uint32_t rayID;
+
               vortex::rt::trace_ray(
                 ray.orig.x, ray.orig.y, ray.orig.z,
                 ray.dir.x, ray.dir.y, ray.dir.z,
-                (uint32_t)(&payloads[i]), rayID
+                (uint32_t)(&payloads[i])
               );
             }else{
               payloads[i].stop = true;
@@ -100,11 +100,11 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
             for (uint32_t i = 0; i < BATCH_SIZE; ++i) {
                 if (!payloads[i].stop && payloads[i].bounce < arg->max_depth) {
                     payloads[i].done = false;
-                    uint32_t rayID;
+
                     vortex::rt::trace_ray(
                       payloads[i].origin.x, payloads[i].origin.y, payloads[i].origin.z,
                       payloads[i].direction.x, payloads[i].direction.y, payloads[i].direction.z,
-                      (uint32_t)(&payloads[i]), rayID
+                      (uint32_t)(&payloads[i])
                     );
                     any_active = true;
                 }

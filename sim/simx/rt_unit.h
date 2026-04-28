@@ -61,9 +61,9 @@ public:
     void init_ray(const std::vector<reg_data_t>& rs1_data, std::vector<reg_data_t>& rd_data);
     void traverse(const std::vector<reg_data_t>& rs1_data, RtuTraceData* trace_data);
     void get_work(std::vector<reg_data_t>& rd_data);
-    void get_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, std::vector<reg_data_t>& rd_data);
-    void set_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data, uint32_t attr_imm);
-    void commit(const std::vector<reg_data_t>& rs1_data, uint32_t action, RtuTraceData* trace_data);
+    void get_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, std::vector<reg_data_t>& rd_data, uint32_t attr);
+    void set_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data, uint32_t attr);
+    void commit(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, uint32_t action, RtuTraceData* trace_data);
     void release_ray(const std::vector<reg_data_t>& rs1_data);
     void print_stats() const;
     const PerfStats& perf_stats() const;

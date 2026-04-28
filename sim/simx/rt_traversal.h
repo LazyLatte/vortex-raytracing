@@ -92,25 +92,25 @@ enum TraversalStatus {FINISHED, CONTINUE, RESTART, INSTANCE_HIT, LEAF_HIT, TO_AN
 
 struct TraversalState {
     Ray ray;
-    Hit hit, best_hit;
+    Hit best_hit;
+    Hit prim_hit[RT_BOX_INTERSECTION_SIMD_WIDTH];
     TraversalTrail trail;
     TraversalStack stack;
     uint32_t root_ptr;
     uint32_t root_level;
     uint32_t level;
     uint32_t instanceID;
-    
+    uint8_t valid_mask;
+
     TraversalState(){}
     TraversalState(Ray ray, uint32_t root_ptr){
         this->ray = ray;
-        this->hit = Hit();
-        this->best_hit = Hit();
-        this->trail = {};
-        this->stack = TraversalStack();
+        this->trail.fill(0);
         this->root_ptr = root_ptr;
         this->root_level = 0;
         this->level = 0;
         this->instanceID = 0xffffffff;
+        this->valid_mask = 0;
     }
 
     int32_t findNextParentLevel(){
@@ -268,23 +268,23 @@ float ray_tri_intersect(const Ray &ray, const Triangle &tri, float &u, float &v)
     return tf;
 }
 
-uint8_t ray_nTri_intersect(Triangle* tris, uint32_t triBaseID, uint32_t triCount, TraversalState& state, std::array<Hit, RT_TRI_INTERSECTION_SIMD_WIDTH>& tri_hits){
-    uint8_t valid_mask = 0;
+void ray_nTri_intersect(Triangle* tris, uint32_t triBaseID, uint32_t triCount, TraversalState& state){
+    state.valid_mask = 0;
     for(int i=0; i<triCount; i++){        
         float u, v;
         float t = ray_tri_intersect(state.ray, tris[i], u, v);
 
         if (t < state.best_hit.t) {
-            tri_hits[i].t = t;
-            tri_hits[i].u = u;
-            tri_hits[i].v = v;
-            tri_hits[i].primitiveID = triBaseID + i;
-            tri_hits[i].instanceID = state.instanceID;
+            state.prim_hit[i].t = t;
+            state.prim_hit[i].u = u;
+            state.prim_hit[i].v = v;
+            state.prim_hit[i].primitiveID = triBaseID + i;
+            state.prim_hit[i].instanceID = state.instanceID;
 
-            valid_mask |= (1 << i);
+            state.valid_mask |= (1 << i);
         }   
     }
-    return valid_mask;
+
 }
 
 }

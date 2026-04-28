@@ -1609,7 +1609,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
         rd_write = true;
       } break;
       case RtuType::GET_ATTR: {        
-        core_->rt_unit()->get_attr(rs1_data, rs2_data, rd_data);
+        core_->rt_unit()->get_attr(rs1_data, rs2_data, rd_data, rtuArgs.imm);
         rd_write = true;
       } break;
       case RtuType::SET_ATTR: {
@@ -1618,7 +1618,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
       case RtuType::COMMIT: {   
         auto trace_data = std::make_shared<RtuTraceData>(num_threads);
         trace->data = trace_data;    
-        core_->rt_unit()->commit(rs1_data, rtuArgs.imm, trace_data.get());
+        core_->rt_unit()->commit(rs1_data, rs2_data, rtuArgs.imm, trace_data.get());
       } break;
       case RtuType::RELEASE: {    
         core_->rt_unit()->release_ray(rs1_data);

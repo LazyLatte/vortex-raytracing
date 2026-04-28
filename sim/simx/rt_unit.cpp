@@ -125,7 +125,11 @@ public:
                     return TraversalStatus::INSTANCE_HIT;
                 }else{
                 #ifdef RT_SHADER_INTERSECTION_ENABLE
-                    state.hit.primitiveID = node_ptr;
+                    for(int i=0; i<node.leaf.primCount; i++){
+                        state.prim_hit[i].primitiveID = node.leftFirst + i;
+                        state.prim_hit[i].instanceID = state.instanceID;
+                    }
+                    state.valid_mask = (1 << node.leaf.primCount) - 1;
                     return TraversalStatus::TO_INTERSECTION_SHADER;
                 #else
                     uint32_t triBaseID = node.leftFirst;
@@ -140,14 +144,18 @@ public:
                     dcache_read(&tris[0], tri_base_addr, tri_tot_size);
                     thread_info.RT_mem_accesses.emplace_back(tri_base_addr, tri_tot_size, TransactionType::BVH_QUAD_LEAF);
 
-                    std::array<Hit, RT_TRI_INTERSECTION_SIMD_WIDTH> tri_hits;
-                    uint8_t valid_mask = ray_nTri_intersect(tris, triBaseID, triCount, state, tri_hits); // SIMD Intersection
+                    // SIMD Intersection
+                    ray_nTri_intersect(tris, triBaseID, triCount, state);
 
-                    if(valid_mask != 0){
-                        // Comparator Tree
-                        Hit h0 = Hit::compare(tri_hits[0], tri_hits[1]);
-                        Hit h1 = Hit::compare(tri_hits[2], tri_hits[3]);
-                        state.best_hit = Hit::compare(h0, h1);
+                    if(state.valid_mask != 0){
+                        #ifdef RT_SHADER_ANYHIT_ENABLE
+                            return TraversalStatus::TO_ANYHIT_SHADER;
+                        #else
+                            // Comparator Tree
+                            Hit h0 = Hit::compare(state.prim_hit[0], state.prim_hit[1]);
+                            Hit h1 = Hit::compare(state.prim_hit[2], state.prim_hit[3]);
+                            state.best_hit = Hit::compare(h0, h1); 
+                        #endif
                     }
 
                     status = state.pop(node_ptr);
@@ -187,13 +195,21 @@ public:
                 }
 
                case TraversalStatus::TO_ANYHIT_SHADER: {
-                    shader_queues[ShaderType::ANY].push(rayID);
+                    for(uint32_t idx=0; idx<RT_BOX_INTERSECTION_SIMD_WIDTH; idx++){
+                        if(state.valid_mask & (1 << idx)){
+                            shader_queues[ShaderType::ANY].push((idx << 24) | rayID);
+                        }
+                    }
                     exit = true;
                     break;
                }
 
                case TraversalStatus::TO_INTERSECTION_SHADER: {
-                    shader_queues[ShaderType::INTERSECTION].push(rayID);
+                    for(uint32_t idx=0; idx<RT_BOX_INTERSECTION_SIMD_WIDTH; idx++){
+                        if(state.valid_mask & (1 << idx)){
+                            shader_queues[ShaderType::INTERSECTION].push((idx << 24) | rayID);
+                        }
+                    }
                     exit = true;
                     break;
                }
@@ -277,24 +293,24 @@ public:
         
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             if(tid < active_lanes){
-                uint32_t rayID = out_warp[tid];
-                rd_data[tid].u32 = (1 << (28 + type)) | (rayID & 0x0FFFFFFF); 
+                uint32_t data = out_warp[tid];
+                rd_data[tid].u32 = (1 << (28 + type)) | (data & 0x0FFFFFFF); 
             }else{
                 rd_data[tid].u32 = (1 << (28 + type)); 
             }
         }
     }
 
-    void get_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, std::vector<reg_data_t>& rd_data){
+    void get_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, std::vector<reg_data_t>& rd_data, uint32_t attr){
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             uint32_t rayID = rs1_data[tid].u32;
-            if(rayID == 0) continue;
+            uint32_t hitID = rs2_data[tid].u32;
 
-            uint32_t attrID = rs2_data[tid].u32;
+            if(rayID == 0) continue;
 
             TraversalState& state = traversal_states_[rayID];
 
-            switch(attrID){
+            switch(attr){
                 case VX_RT_WORLD_RAY_RO_X: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].ro_x); break;
                 case VX_RT_WORLD_RAY_RO_Y: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].ro_y); break;
                 case VX_RT_WORLD_RAY_RO_Z: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&rays_[rayID].ro_z); break;
@@ -309,11 +325,11 @@ public:
                 case VX_RT_OBJECT_RAY_RD_Y: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.rd_y); break;
                 case VX_RT_OBJECT_RAY_RD_Z: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.ray.rd_z); break;
 
-                case VX_RT_HIT_T: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.hit.t); break;
-                case VX_RT_HIT_U: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.hit.u); break;
-                case VX_RT_HIT_V: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.hit.v); break;
-                // case VX_RT_HIT_INSTANCE_ID: rd_data[tid].u32 = state.hit.instanceID; break;
-                // case VX_RT_HIT_PRIMITIVE_ID: rd_data[tid].u32 = state.hit.primitiveID; break;
+                case VX_RT_HIT_T: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.prim_hit[hitID].t); break;
+                case VX_RT_HIT_U: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.prim_hit[hitID].u); break;
+                case VX_RT_HIT_V: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.prim_hit[hitID].v); break;
+                case VX_RT_HIT_INSTANCE_ID: rd_data[tid].u32 = state.prim_hit[hitID].instanceID; break;
+                case VX_RT_HIT_PRIMITIVE_ID: rd_data[tid].u32 = state.prim_hit[hitID].primitiveID; break;
 
                 // Hit results are only for CHS
                 case VX_RT_HIT_RESULT_T: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&hit_buffer_[rayID].t); break;
@@ -331,14 +347,15 @@ public:
     void set_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data, uint32_t attr){
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             uint32_t rayID = rs1_data[tid].u32;
-            if(rayID == 0) continue;
-
             uint32_t rs2 = rs2_data[tid].u32;
             uint32_t rs3 = rs3_data[tid].u32;
-            
+            uint32_t hitID = rs2;
+
+            if(rayID == 0) continue;
+
             float v0 = *reinterpret_cast<float*>(&rs2);
             float v1 = *reinterpret_cast<float*>(&rs3);
-
+            
             switch(attr){
                 case VX_RT_RAY_X:
                     rays_[rayID].ro_x = v0;
@@ -352,45 +369,70 @@ public:
                     rays_[rayID].ro_z = v0;
                     rays_[rayID].rd_z = v1;
                     break;
-                case VX_RT_HIT_T_ID:
-                    traversal_states_[rayID].hit.t = v0;
-                    traversal_states_[rayID].hit.primitiveID = rs3;
+                case VX_RT_HIT_T:
+                    traversal_states_[rayID].prim_hit[hitID].t = v1;
                     break;
-                case VX_RT_HIT_UV:
-                    traversal_states_[rayID].hit.u = v0;
-                    traversal_states_[rayID].hit.v = v1;
+                case VX_RT_HIT_U:
+                    traversal_states_[rayID].prim_hit[hitID].u = v1;
+                    break;
+                case VX_RT_HIT_V:
+                    traversal_states_[rayID].prim_hit[hitID].v = v1;
                     break;
                 default: break;
             }
         }  
     }
 
-    void commit(const std::vector<reg_data_t>& rs1_data, uint32_t action, RtuTraceData* trace_data){
+    void commit(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, uint32_t action, RtuTraceData* trace_data){
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             uint32_t rayID = rs1_data[tid].u32;
-            if(rayID == 0) continue;
-
+            uint32_t hitID = rs2_data[tid].u32;
+            
+            if(rayID == 0 || hitID >= RT_BOX_INTERSECTION_SIMD_WIDTH) continue;
+            
+            TraversalState& state = traversal_states_[rayID];
+            
             switch(action){
                 case VX_RT_ANYHIT_IGNORE: 
                 case VX_RT_INTERSECTION_IGNORE:
-                    traverse(rayID, trace_data->m_per_scalar_thread[tid]);
+                    state.valid_mask &= ~(1 << hitID);
+                    if(state.valid_mask == 0){
+                        traverse(rayID, trace_data->m_per_scalar_thread[tid]);
+                    }
                     break;
                 case VX_RT_ANYHIT_ACCEPT: 
-                    traversal_states_[rayID].best_hit = traversal_states_[rayID].hit;
-                    traverse(rayID, trace_data->m_per_scalar_thread[tid]);
+                    if(state.prim_hit[hitID].t < state.best_hit.t){
+                        state.best_hit = state.prim_hit[hitID];
+                    }
+
+                    state.valid_mask &= ~(1 << hitID);
+
+                    if(state.valid_mask == 0){
+                        traverse(rayID, trace_data->m_per_scalar_thread[tid]);
+                    }
                     break;
                 case VX_RT_INTERSECTION_ACCEPT: {
                     #ifdef RT_SHADER_ANYHIT_ENABLE
-                        if(traversal_states_[rayID].hit.t < traversal_states_[rayID].best_hit.t){
-                            shader_queues[ShaderType::ANY].push(rayID);
+                        if(state.prim_hit[hitID].t < state.best_hit.t){
+                            // candidate
+                            shader_queues[ShaderType::ANY].push((hitID << 24) | rayID);
                         }else{
-                            traverse(rayID, trace_data->m_per_scalar_thread[tid]);
+                            state.valid_mask &= ~(1 << hitID);
+
+                            if(state.valid_mask == 0){
+                                traverse(rayID, trace_data->m_per_scalar_thread[tid]);
+                            }
                         }
                     #else
-                        if(traversal_states_[rayID].hit.t < traversal_states_[rayID].best_hit.t){
-                            traversal_states_[rayID].best_hit = traversal_states_[rayID].hit;
+                        if(state.prim_hit[hitID].t < state.best_hit.t){
+                            state.best_hit = state.prim_hit[hitID];
                         }
-                        traverse(rayID, trace_data->m_per_scalar_thread[tid]);
+
+                        state.valid_mask &= ~(1 << hitID);
+
+                        if(state.valid_mask == 0){
+                            traverse(rayID, trace_data->m_per_scalar_thread[tid]);
+                        }
                     #endif
                     break;
                 }
@@ -523,12 +565,12 @@ void RTUnit::get_work(std::vector<reg_data_t>& rd_data){
     impl_->get_work(rd_data);
 }
 
-void RTUnit::get_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, std::vector<reg_data_t>& rd_data){
-    impl_->get_attr(rs1_data, rs2_data, rd_data);
+void RTUnit::get_attr(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, std::vector<reg_data_t>& rd_data, uint32_t attr){
+    impl_->get_attr(rs1_data, rs2_data, rd_data, attr);
 }
 
-void RTUnit::commit(const std::vector<reg_data_t>& rs1_data, uint32_t action, RtuTraceData* trace_data){
-    impl_->commit(rs1_data, action, trace_data);
+void RTUnit::commit(const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, uint32_t action, RtuTraceData* trace_data){
+    impl_->commit(rs1_data, rs2_data, action, trace_data);
 }
 
 void RTUnit::release_ray(const std::vector<reg_data_t>& rs1_data){
