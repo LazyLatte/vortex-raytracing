@@ -291,10 +291,11 @@ VX_RT_HIT_RESULT_INSTANCE_ID = 20
 VX_RT_HIT_RESULT_PRIMITIVE_ID = 21
 VX_RT_PAYLOAD_ADDR = 22
 
-[rtu_set_attrs]
+[rtu_trace_attrs]
 VX_RT_RAY_X = 0
 VX_RT_RAY_Y = 1
 VX_RT_RAY_Z = 2
+VX_RT_RAY_T = 3
 
 [rtu_commit_action]
 VX_RT_INTERSECTION_ACCEPT = 10

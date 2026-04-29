@@ -23,9 +23,10 @@ struct BVHChildData {
 // 64 bytes when RT_BVH_WIDTH = 6
 struct BVHNode {
     uint32_t leftFirst;
-#define BVH_INTERNAL   0
-#define INSTANCE_LEAF  1
-#define PRIMITIVE_LEAF 3
+#define BVH_INTERNAL    0
+#define INSTANCE_LEAF   1
+#define PRIMITIVE_LEAF  3
+#define PROCEDURAL_LEAF 4
     uint8_t type;
     int8_t ex, ey, ez;
 
@@ -71,18 +72,48 @@ struct Ray {
 };
 
 struct Hit {
-    float t = LARGE_FLOAT, u, v;
+    float t, u, v;
     uint32_t primitiveID; // 32bits
     uint32_t instanceID; // 24bits
+    bool valid;
 
-    static Hit compare(const Hit& a, const Hit& b) { return (a.t < b.t) ? a : b; }
+    Hit()
+        : t(LARGE_FLOAT)
+        , u(0.0)
+        , v(0.0)
+        , primitiveID(0)
+        , instanceID(0)
+        , valid(false) 
+    {}
+
+    Hit(float _t, float _u, float _v, uint32_t _primitiveID, uint32_t _instanceID) 
+        : t(_t)
+        , u(_u)
+        , v(_v)
+        , primitiveID(_primitiveID)
+        , instanceID(_instanceID)
+        , valid(true) 
+    {}
+
+    static Hit compare(const Hit& a, const Hit& b) {
+        if(!a.valid) return b;
+        if(!b.valid) return a; 
+        return (a.t < b.t) ? a : b; 
+    }
 };
 
 struct BoxHit {
-    float t = LARGE_FLOAT;
+    float t;
     uint32_t idx; // child index: 0 ~ RT_BVH_WIDTH-1
+    bool valid;
 
-    static bool compare(const BoxHit& a, const BoxHit& b) { return a.t < b.t; }
+    BoxHit(): t(LARGE_FLOAT), idx(0), valid(false) {}
+    BoxHit(float _t, uint32_t _idx) : t(_t), idx(_idx), valid(true) {}
+
+    static bool compare(const BoxHit& a, const BoxHit& b) { 
+        if (a.valid && b.valid) return a.t < b.t;
+        return a.valid > b.valid;
+    }
 };
 
 typedef ShortStack<uint32_t, RT_STACK_SIZE> TraversalStack;
@@ -100,7 +131,7 @@ struct TraversalState {
     uint32_t root_level;
     uint32_t level;
     uint32_t instanceID;
-    uint8_t valid_mask;
+    float tmin;
 
     TraversalState(){}
     TraversalState(Ray ray, uint32_t root_ptr){
@@ -109,8 +140,8 @@ struct TraversalState {
         this->root_ptr = root_ptr;
         this->root_level = 0;
         this->level = 0;
-        this->instanceID = 0xffffffff;
-        this->valid_mask = 0;
+        this->instanceID = 0xFFFFFFFF;
+        this->tmin = 0.0f;
     }
 
     int32_t findNextParentLevel(){
@@ -140,7 +171,7 @@ struct TraversalState {
         }
 
         uint32_t e = stack.pop();
-        node_ptr = e & 0xfffffffe;
+        node_ptr = e & 0xFFFFFFFE;
 
         if(e & 1){
             trail[parentLevel] = RT_BVH_WIDTH;
@@ -148,6 +179,14 @@ struct TraversalState {
 
         level = parentLevel + 1;
         return TraversalStatus::CONTINUE; 
+    }
+
+    bool has_prim_hit(){
+        bool h = false;
+        for(int i=0; i<RT_BOX_INTERSECTION_SIMD_WIDTH; i++){
+            h |= prim_hit[i].valid;
+        }
+        return h;
     }
 };
 
@@ -168,27 +207,26 @@ Ray ray_transform(const Ray &ray, float *T){
     return T_ray;
 }
 
-float ray_box_intersect(const Ray &ray, float min_x, float min_y, float min_z, float max_x, float max_y, float max_z){
+void ray_box_intersect(const Ray &ray, float min_x, float min_y, float min_z, float max_x, float max_y, float max_z, float& t_near, float& t_far){
     float ro_x = ray.ro_x, ro_y = ray.ro_y, ro_z = ray.ro_z;
     float rd_x = ray.rd_x, rd_y = ray.rd_y, rd_z = ray.rd_z;
-    float idir_x, idir_y, idir_z, tmin, tmax, tx1, tx2, ty1, ty2, tz1, tz2;
+    float idir_x, idir_y, idir_z, tx1, tx2, ty1, ty2, tz1, tz2;
 
     idir_x = 1.0f / rd_x;
     idir_y = 1.0f / rd_y;
     idir_z = 1.0f / rd_z;
     tx1 = (min_x - ro_x) * idir_x;
     tx2 = (max_x - ro_x) * idir_x;
-    tmin = std::min(tx1, tx2);
-    tmax = std::max(tx1, tx2);
+    t_near = std::min(tx1, tx2);
+    t_far = std::max(tx1, tx2);
     ty1 = (min_y - ro_y) * idir_y;
     ty2 = (max_y - ro_y) * idir_y;
-    tmin = std::max(tmin, std::min(ty1, ty2));
-    tmax = std::min(tmax, std::max(ty1, ty2));
+    t_near = std::max(t_near, std::min(ty1, ty2));
+    t_far = std::min(t_far, std::max(ty1, ty2));
     tz1 = (min_z - ro_z) * idir_z;
     tz2 = (max_z - ro_z) * idir_z;
-    tmin = std::max(tmin, std::min(tz1, tz2));
-    tmax = std::min(tmax, std::max(tz1, tz2));
-    return tmax < tmin || tmax <= 0 ? LARGE_FLOAT : tmin;
+    t_near = std::max(t_near, std::min(tz1, tz2));
+    t_far = std::min(t_far, std::max(tz1, tz2));
 }
 
 uint32_t ray_nBox_intersect(BVHNode& node, TraversalState& state, std::array<BoxHit, RT_BOX_INTERSECTION_SIMD_WIDTH>& box_hits){
@@ -203,11 +241,12 @@ uint32_t ray_nBox_intersect(BVHNode& node, TraversalState& state, std::array<Box
         float max_y = node.internal.py + std::ldexp(float(node.internal.children[i].qaabb[4]), node.ey);
         float max_z = node.internal.pz + std::ldexp(float(node.internal.children[i].qaabb[5]), node.ez);
 
-        float t = ray_box_intersect(state.ray, min_x, min_y, min_z, max_x, max_y, max_z);
+        float t_near, t_far;
+        ray_box_intersect(state.ray, min_x, min_y, min_z, max_x, max_y, max_z, t_near, t_far);
 
-        if(t < state.best_hit.t){
-            box_hits[i].t = t;
-            box_hits[i].idx = i;
+        if (t_near <= t_far && t_far > state.tmin && t_near < state.best_hit.t) {
+            float t = std::max(t_near, state.tmin);
+            box_hits[i] = BoxHit(t, i);
             valid_count++;
         }
     }
@@ -269,22 +308,14 @@ float ray_tri_intersect(const Ray &ray, const Triangle &tri, float &u, float &v)
 }
 
 void ray_nTri_intersect(Triangle* tris, uint32_t triBaseID, uint32_t triCount, TraversalState& state){
-    state.valid_mask = 0;
     for(int i=0; i<triCount; i++){        
         float u, v;
         float t = ray_tri_intersect(state.ray, tris[i], u, v);
 
-        if (t < state.best_hit.t) {
-            state.prim_hit[i].t = t;
-            state.prim_hit[i].u = u;
-            state.prim_hit[i].v = v;
-            state.prim_hit[i].primitiveID = triBaseID + i;
-            state.prim_hit[i].instanceID = state.instanceID;
-
-            state.valid_mask |= (1 << i);
-        }   
+        if (t < state.best_hit.t && t > state.tmin) {
+            state.prim_hit[i] = Hit(t, u, v, triBaseID + i, state.instanceID);
+        }
     }
-
 }
 
 }

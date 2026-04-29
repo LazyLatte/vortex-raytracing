@@ -128,8 +128,8 @@ public:
                     for(int i=0; i<node.leaf.primCount; i++){
                         state.prim_hit[i].primitiveID = node.leftFirst + i;
                         state.prim_hit[i].instanceID = state.instanceID;
+                        state.prim_hit[i].valid = true;
                     }
-                    state.valid_mask = (1 << node.leaf.primCount) - 1;
                     return TraversalStatus::TO_INTERSECTION_SHADER;
                 #else
                     uint32_t triBaseID = node.leftFirst;
@@ -147,7 +147,7 @@ public:
                     // SIMD Intersection
                     ray_nTri_intersect(tris, triBaseID, triCount, state);
 
-                    if(state.valid_mask != 0){
+                    if(state.has_prim_hit()){
                         #ifdef RT_SHADER_ANYHIT_ENABLE
                             return TraversalStatus::TO_ANYHIT_SHADER;
                         #else
@@ -184,7 +184,7 @@ public:
                     dcache_read(&blas, instance_ptr, 52);
                     thread_info.RT_mem_accesses.emplace_back(instance_ptr, 52, TransactionType::BVH_INSTANCE_LEAF);
                     state.ray = ray_transform(rays_[rayID], blas.invTransform);
-                    state.root_ptr = NODE_ADDR(qBvh_ptr, blas.bvh_offset);
+                    state.root_ptr = NODE_ADDR(bvh_ptr, blas.bvh_offset);
                     state.root_level = state.level;
                     break;
                 }
@@ -195,8 +195,8 @@ public:
                 }
 
                case TraversalStatus::TO_ANYHIT_SHADER: {
-                    for(uint32_t idx=0; idx<RT_BOX_INTERSECTION_SIMD_WIDTH; idx++){
-                        if(state.valid_mask & (1 << idx)){
+                    for(uint32_t idx = 0; idx < RT_BOX_INTERSECTION_SIMD_WIDTH; idx++){
+                        if(state.prim_hit[idx].valid){
                             shader_queues[ShaderType::ANY].push((idx << 24) | rayID);
                         }
                     }
@@ -205,8 +205,8 @@ public:
                }
 
                case TraversalStatus::TO_INTERSECTION_SHADER: {
-                    for(uint32_t idx=0; idx<RT_BOX_INTERSECTION_SIMD_WIDTH; idx++){
-                        if(state.valid_mask & (1 << idx)){
+                    for(uint32_t idx = 0; idx < RT_BOX_INTERSECTION_SIMD_WIDTH; idx++){
+                        if(state.prim_hit[idx].valid){
                             shader_queues[ShaderType::INTERSECTION].push((idx << 24) | rayID);
                         }
                     }
@@ -217,12 +217,12 @@ public:
                 case TraversalStatus::FINISHED: {
                     if(state.root_ptr == tlas_ptr || state.root_level == 0 || state.trail[0] == RT_BVH_WIDTH){
                         // TLAS Finished
-                        if(state.best_hit.t == LARGE_FLOAT){
-                            shader_queues[ShaderType::MISS].push(rayID);
-                        }else{
+                        if(state.best_hit.valid){
                             shader_queues[ShaderType::CLOSET].push(rayID);
                             if(hit_buffer_.count(rayID) > 0) hit_buffer_stall_counts_[rayID]++;
                             hit_buffer_[rayID] = state.best_hit;
+                        }else{
+                            shader_queues[ShaderType::MISS].push(rayID);
                         }
                         exit = true;
                     }else{
@@ -250,7 +250,7 @@ public:
     void traverse(const std::vector<reg_data_t>& rs1_data, RtuTraceData* trace_data){
         tlas_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TLAS_PTR);
         blas_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_BLAS_PTR);
-        qBvh_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_BVH_PTR);
+        bvh_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_BVH_PTR);
         tri_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TRI_PTR);
 
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
@@ -356,6 +356,8 @@ public:
             float v0 = *reinterpret_cast<float*>(&rs2);
             float v1 = *reinterpret_cast<float*>(&rs3);
             
+            TraversalState& state = traversal_states_[rayID];
+
             switch(attr){
                 case VX_RT_RAY_X:
                     rays_[rayID].ro_x = v0;
@@ -369,14 +371,18 @@ public:
                     rays_[rayID].ro_z = v0;
                     rays_[rayID].rd_z = v1;
                     break;
+                case VX_RT_RAY_T:
+                    state.tmin = v0;
+                    state.best_hit.t = v1;
+                    break;
                 case VX_RT_HIT_T:
-                    traversal_states_[rayID].prim_hit[hitID].t = v1;
+                    state.prim_hit[hitID].t = v1;
                     break;
                 case VX_RT_HIT_U:
-                    traversal_states_[rayID].prim_hit[hitID].u = v1;
+                    state.prim_hit[hitID].u = v1;
                     break;
                 case VX_RT_HIT_V:
-                    traversal_states_[rayID].prim_hit[hitID].v = v1;
+                    state.prim_hit[hitID].v = v1;
                     break;
                 default: break;
             }
@@ -395,8 +401,8 @@ public:
             switch(action){
                 case VX_RT_ANYHIT_IGNORE: 
                 case VX_RT_INTERSECTION_IGNORE:
-                    state.valid_mask &= ~(1 << hitID);
-                    if(state.valid_mask == 0){
+                    state.prim_hit[hitID].valid = false;
+                    if(!state.has_prim_hit()){
                         traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                     }
                     break;
@@ -405,9 +411,9 @@ public:
                         state.best_hit = state.prim_hit[hitID];
                     }
 
-                    state.valid_mask &= ~(1 << hitID);
+                    state.prim_hit[hitID].valid = false;
 
-                    if(state.valid_mask == 0){
+                    if(!state.has_prim_hit()){
                         traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                     }
                     break;
@@ -417,9 +423,9 @@ public:
                             // candidate
                             shader_queues[ShaderType::ANY].push((hitID << 24) | rayID);
                         }else{
-                            state.valid_mask &= ~(1 << hitID);
+                            state.prim_hit[hitID].valid = false;
 
-                            if(state.valid_mask == 0){
+                            if(!state.has_prim_hit()){
                                 traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                             }
                         }
@@ -428,9 +434,9 @@ public:
                             state.best_hit = state.prim_hit[hitID];
                         }
 
-                        state.valid_mask &= ~(1 << hitID);
+                        state.prim_hit[hitID].valid = false;
 
-                        if(state.valid_mask == 0){
+                        if(!state.has_prim_hit()){
                             traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                         }
                     #endif
@@ -451,7 +457,7 @@ private:
     uint32_t num_blocks_;
     uint32_t num_lanes_;
 
-    uint32_t tlas_ptr, blas_ptr, qBvh_ptr, tri_ptr;
+    uint32_t tlas_ptr, blas_ptr, bvh_ptr, tri_ptr;
 
     uint32_t cur_rayid_; // 0 as the invalid ray
     std::unordered_map<uint32_t, Ray> rays_;
@@ -490,38 +496,38 @@ const RTUnit::PerfStats &RTUnit::perf_stats() const {
 }
 
 void RTUnit::print_stats() const {
-    // PerfStats stats = perf_stats();
-    // std::cout << "Total warps: " << stats.rt_total_warps << std::endl;
-    // std::cout << "Total warps latency: " << stats.rt_total_warp_latency << std::endl;
-    // std::cout << "Avg warp latency: " << stats.rt_total_warp_latency / stats.rt_total_warps << std::endl;
-    // std::cout << "Total threads latency: " << stats.rt_total_thread_latency << std::endl;
-    // std::cout << "Avg threads latency: " << stats.rt_total_thread_latency / stats.rt_total_warps << std::endl;
-    // std::cout << "Avg efficiency: " << stats.rt_total_simt_efficiency / stats.rt_total_warps << std::endl;
+    PerfStats stats = perf_stats();
+    std::cout << "Total warps: " << stats.rt_total_warps << std::endl;
+    std::cout << "Total warps latency: " << stats.rt_total_warp_latency << std::endl;
+    std::cout << "Avg warp latency: " << stats.rt_total_warp_latency / stats.rt_total_warps << std::endl;
+    std::cout << "Total threads latency: " << stats.rt_total_thread_latency << std::endl;
+    std::cout << "Avg threads latency: " << stats.rt_total_thread_latency / stats.rt_total_warps << std::endl;
+    std::cout << "Avg efficiency: " << stats.rt_total_simt_efficiency / stats.rt_total_warps << std::endl;
 
-    // std::cout << "RT active cycles: " << stats.rt_active_cycles << std::endl;
-    // std::cout << "RT total cycles: " <<  stats.total_elapsed_cycles << std::endl;
-    // std::cout << "RT active rate: " <<  (float)stats.rt_active_cycles / stats.total_elapsed_cycles  << std::endl;
+    std::cout << "RT active cycles: " << stats.rt_active_cycles << std::endl;
+    std::cout << "RT total cycles: " <<  stats.total_elapsed_cycles << std::endl;
+    std::cout << "RT active rate: " <<  (float)stats.rt_active_cycles / stats.total_elapsed_cycles  << std::endl;
 
-    // std::string warp_status_names[warp_statuses] = {
-    //     "warp_stalled",
-    //     "warp_waiting",
-    //     "warp_executing"
-    // };
+    std::string warp_status_names[warp_statuses] = {
+        "warp_stalled",
+        "warp_waiting",
+        "warp_executing"
+    };
 
-    // std::string ray_status_names[ray_statuses] = {
-    //     "awaiting_processing",
-    //     "awaiting_scheduling",
-    //     "awaiting_mf",
-    //     "executing_op",
-    //     "trace_complete"
-    // };
+    std::string ray_status_names[ray_statuses] = {
+        "awaiting_processing",
+        "awaiting_scheduling",
+        "awaiting_mf",
+        "executing_op",
+        "trace_complete"
+    };
 
-    // for (unsigned i=0; i<warp_statuses; i++) {
-    //     std::cout << warp_status_names[i].c_str() << std::endl;
-    //     for (unsigned j=0; j<ray_statuses; j++) {
-    //         std::cout << "=> " << ray_status_names[j].c_str() << ": " << stats.rt_latency_dist[i][j] / stats.rt_latency_counter << std::endl;
-    //     }
-    // }
+    for (unsigned i=0; i<warp_statuses; i++) {
+        std::cout << warp_status_names[i].c_str() << std::endl;
+        for (unsigned j=0; j<ray_statuses; j++) {
+            std::cout << "=> " << ray_status_names[j].c_str() << ": " << stats.rt_latency_dist[i][j] / stats.rt_latency_counter << std::endl;
+        }
+    }
 
     // const char * filename = "latencies.csv";
     // std::ofstream outFile(filename);

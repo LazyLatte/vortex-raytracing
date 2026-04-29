@@ -57,9 +57,10 @@ struct child_data_t {
 struct bvh_quantized_node_t {
   uint32_t leftFirst;
 
-#define BVH_INTERNAL   0
-#define INSTANCE_LEAF  1
-#define PRIMITIVE_LEAF 3
+#define BVH_INTERNAL    0
+#define INSTANCE_LEAF   1
+#define PRIMITIVE_LEAF  3
+#define PROCEDURAL_LEAF 4
   uint8_t type;
   int8_t ex, ey, ez;
 

@@ -25,6 +25,8 @@ static __attribute__((always_inline)) void trace_ray(
     float rd_x, 
     float rd_y, 
     float rd_z, 
+    float tmin,
+    float tmax,
     uint32_t payload_addr
 ) {
     register uint32_t ret __asm__("x10");
@@ -37,11 +39,14 @@ static __attribute__((always_inline)) void trace_ray(
     register float dy __asm__("f15") = rd_y;
     register float dz __asm__("f16") = rd_z;
 
+    register float rs_tmin __asm__("f17") = tmin;
+    register float rs_tmax __asm__("f18") = tmax;
+
     __asm__ volatile (
         ".insn r %[insn], 0, 3, %[rd_t], %[rs_ray], %[rs_payload_addr]"
         : [rd_t] "=r"(ret)
         : [insn] "i"(RISCV_CUSTOM0)
-        , [rs_ray] "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz)
+        , [rs_ray] "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(rs_tmin), "f"(rs_tmax)
         , [rs_payload_addr] "r"(payload_addr)
     );
 }

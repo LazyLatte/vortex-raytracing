@@ -9,26 +9,25 @@
 #define PIXELS_PER_TILE 64
 #define THREADS_PER_WARP 32
 #define BATCH_SIZE 2
+#define T_MIN 0.0001f
+#define T_MAX LARGE_FLOAT
 
-float fast_rand(uint32_t& seed) {
+inline float fast_rand(uint32_t seed) {
     seed = seed * 1664525u + 1013904223u;
     return (float)(seed & 0xFFFFFF) / 16777216.0f;
 }
 
 ray_t GenerateRay(uint32_t x, uint32_t y, uint32_t sample_idx, const kernel_arg_t *arg) {
-    // 1. Create a unique seed for this pixel and sample
-    // Using x, y, and sample index ensures every ray in the frame is different
     uint32_t seed = x + y * arg->dst_width + sample_idx * (arg->dst_width * arg->dst_height);
 
-    // 2. Generate jitter offsets [-0.5, 0.5]
     float jitter_x = fast_rand(seed) - 0.5f;
-    float jitter_y = fast_rand(seed) - 0.5f;
+    float jitter_y = fast_rand(seed + 1) - 0.5f;
 
     auto pos = float3_t(0.0, 0.0, 0.0);
     auto front = float3_t(1.0, 0.0, 0.0);
     float FOV = 1.0;
 
-    // 3. Apply jitter to the screen-space coordinates
+    // Apply jitter to the screen-space coordinates
     float u = ((float)x + jitter_x) * 2.0f - (float)arg->dst_width;
     u /= (float)arg->dst_height;
 
@@ -41,6 +40,19 @@ ray_t GenerateRay(uint32_t x, uint32_t y, uint32_t sample_idx, const kernel_arg_
 
     return ray_t{pos, dir};
 }
+
+// ray_t GenerateRay(uint32_t x, uint32_t y, uint32_t sample_idx, const kernel_arg_t *__UNIFORM__ arg) {
+//   auto pos = float3_t(0.0, 0.0, 0.0);
+//   auto front = float3_t(1.0, 0.0, 0.0);
+//   float FOV = 1.0;
+//   float u = (x * 2.0 - arg->dst_width) / arg->dst_height;
+//   float v = (y * 2.0 - arg->dst_height) / arg->dst_height;
+
+//   auto right = cross(front, float3_t(0.0, 1.0, 0.0));
+//   auto up = cross(right, front);
+//   auto dir = normalize(u * right + v * up + FOV * front);
+//   return ray_t{pos, dir};
+// }
 
 void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
   bool *producer_done = (bool*)__local_mem(sizeof(bool));
@@ -75,10 +87,14 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
               payloads[i].stop = false;
               payloads[i].done = false;
 
-
               vortex::rt::trace_ray(
-                ray.orig.x, ray.orig.y, ray.orig.z,
-                ray.dir.x, ray.dir.y, ray.dir.z,
+                ray.orig.x, 
+                ray.orig.y, 
+                ray.orig.z,
+                ray.dir.x, 
+                ray.dir.y, 
+                ray.dir.z, 
+                T_MIN, T_MAX,
                 (uint32_t)(&payloads[i])
               );
             }else{
@@ -102,8 +118,13 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
                     payloads[i].done = false;
 
                     vortex::rt::trace_ray(
-                      payloads[i].origin.x, payloads[i].origin.y, payloads[i].origin.z,
-                      payloads[i].direction.x, payloads[i].direction.y, payloads[i].direction.z,
+                      payloads[i].origin.x, 
+                      payloads[i].origin.y, 
+                      payloads[i].origin.z,
+                      payloads[i].direction.x, 
+                      payloads[i].direction.y, 
+                      payloads[i].direction.z, 
+                      T_MIN, T_MAX,
                       (uint32_t)(&payloads[i])
                     );
                     any_active = true;

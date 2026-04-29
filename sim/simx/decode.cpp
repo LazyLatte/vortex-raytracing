@@ -1252,7 +1252,7 @@ void Emulator::decode(uint32_t code, uint32_t wid, uint64_t uuid) {
       switch (funct3) {
       case 0: { // RTX
         uint32_t steps = 0;
-        uint32_t steps_count = 5;
+        uint32_t steps_count = 6;
         uint32_t steps_shift = 32 - log2ceil(steps_count);
         uint32_t uuid_hi = (uuid >> 32) & 0xffffffff;
         uint32_t uuid_lo = uuid & 0xffffffff;
@@ -1299,6 +1299,17 @@ void Emulator::decode(uint32_t code, uint32_t wid, uint64_t uuid) {
         i_ray_z->setSrcReg(1, rs1 + 2, RegType::Float); // ro_z
         i_ray_z->setSrcReg(2, rs1 + 5, RegType::Float); // rd_z
         ibuffer.push_back(i_ray_z);
+        steps++;
+
+        uuid_lo_x = (steps << steps_shift) | uuid_lo;
+        uuid_x = (static_cast<uint64_t>(uuid_hi) << 32) | uuid_lo_x;
+        auto i_ray_tmin_tmax = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
+        i_ray_tmin_tmax->setArgs(IntrRtuArgs{VX_RT_RAY_T});
+        i_ray_tmin_tmax->setOpType(RtuType::SET_ATTR);
+        i_ray_tmin_tmax->setSrcReg(0, rd, RegType::Integer); // rayID
+        i_ray_tmin_tmax->setSrcReg(1, rs1 + 6, RegType::Float); // tmin
+        i_ray_tmin_tmax->setSrcReg(2, rs1 + 7, RegType::Float); // tmax
+        ibuffer.push_back(i_ray_tmin_tmax);
         steps++;
 
         uuid_lo_x = (steps << steps_shift) | uuid_lo;
