@@ -8,7 +8,7 @@
 #define NODE_ADDR(root, idx) root + (idx) * sizeof(BVHNode)
 #define INSTANCE_ADDR(root, idx) root + (idx) * sizeof(BLASNode)
 #define TRI_ADDR(root, idx) root + (idx) * sizeof(Triangle)
-#define PRIMITIVE_ADDR(root, idx) root + (idx) * sizeof(AABB)
+#define PRIM_AABB_ADDR(root, idx) root + (idx) * sizeof(AABB)
 
 using namespace vortex;
 
@@ -76,23 +76,18 @@ public:
 
     bool isLeaf(BVHNode *node){ return node->type != BVH_INTERNAL; }
     bool isInstanceLeaf(BVHNode *node){ return node->type == INSTANCE_LEAF; }
-    
-    uint32_t traverse(TraversalState& state, per_thread_info &thread_info){
-        uint32_t node_ptr, status;
-        if(state.level == state.root_level){
-            node_ptr = state.root_ptr;
-            status = TraversalStatus::CONTINUE;
-        }else{
-            status = state.pop(node_ptr);
-        }
+    bool isProceduralLeaf(BVHNode *node){ return node->type == PROCEDURAL_LEAF; }
 
-        while(status == TraversalStatus::CONTINUE){
+    void traverse(TraversalState& state, per_thread_info &thread_info){
+        uint32_t node_ptr = (state.level == state.root_level) ? state.root_ptr : state.pop();
+
+        while(state.status == TraversalStatus::CONTINUE){
             BVHNode node;
             dcache_read(&node, node_ptr, sizeof(BVHNode));
             thread_info.RT_mem_accesses.emplace_back(node_ptr, sizeof(BVHNode), TransactionType::BVH_INTERNAL_NODE);
 
             if(!isLeaf(&node)){
-                std::array<BoxHit, RT_BOX_INTERSECTION_SIMD_WIDTH> box_hits;
+                std::array<BoxHit, RT_BOX_INTERSECTION_WIDTH> box_hits;
                 uint32_t valid_count = ray_nBox_intersect(node, state, box_hits); // SIMD intersection
 
                 uint32_t k = state.trail[state.level];
@@ -100,7 +95,7 @@ public:
                 uint32_t end = valid_count;
 
                 if(valid_count == 0 || start >= end){
-                    status = state.pop(node_ptr);
+                    node_ptr = state.pop();
                 }else{
                     std::sort(box_hits.begin(), box_hits.end(), BoxHit::compare);
 
@@ -122,61 +117,28 @@ public:
                 //Leaf Node
                 if(isInstanceLeaf(&node)){
                     state.instanceID = node.leaf.instanceID;
-                    return TraversalStatus::INSTANCE_HIT;
-                }else{
-                #ifdef RT_SHADER_INTERSECTION_ENABLE
-                    for(int i=0; i<node.leaf.primCount; i++){
-                        state.prim_hit[i].primitiveID = node.leftFirst + i;
-                        state.prim_hit[i].instanceID = state.instanceID;
-                        state.prim_hit[i].valid = true;
-                    }
-                    return TraversalStatus::TO_INTERSECTION_SHADER;
-                #else
-                    uint32_t triBaseID = node.leftFirst;
-                    uint32_t triCount = node.leaf.primCount;
-                    uint32_t tri_base_addr = TRI_ADDR(tri_ptr, triBaseID);
-                    uint32_t tri_tot_size = sizeof(Triangle) * triCount;
-
-                    assert(4 == RT_TRI_INTERSECTION_SIMD_WIDTH);
-                    assert(triCount <= RT_TRI_INTERSECTION_SIMD_WIDTH);
-
-                    Triangle tris[RT_TRI_INTERSECTION_SIMD_WIDTH];
-                    dcache_read(&tris[0], tri_base_addr, tri_tot_size);
-                    thread_info.RT_mem_accesses.emplace_back(tri_base_addr, tri_tot_size, TransactionType::BVH_QUAD_LEAF);
-
-                    // SIMD Intersection
-                    ray_nTri_intersect(tris, triBaseID, triCount, state);
-
-                    if(state.has_prim_hit()){
-                        #ifdef RT_SHADER_ANYHIT_ENABLE
-                            return TraversalStatus::TO_ANYHIT_SHADER;
-                        #else
-                            // Comparator Tree
-                            Hit h0 = Hit::compare(state.prim_hit[0], state.prim_hit[1]);
-                            Hit h1 = Hit::compare(state.prim_hit[2], state.prim_hit[3]);
-                            state.best_hit = Hit::compare(h0, h1); 
-                        #endif
-                    }
-
-                    status = state.pop(node_ptr);
-                #endif
+                    state.status = TraversalStatus::INSTANCE_HIT;
+                }else{  
+                    state.prim_count = node.leaf.prim_count;
+                    state.prim_base_id = node.leftFirst;
+                    state.prim_batch_finished_count = 0;
+                    state.leaf_flags = node.leaf.flags;
+                    state.status = isProceduralLeaf(&node) ? TraversalStatus::PROCEDURAL_LEAF_HIT : TraversalStatus::TRI_LEAF_HIT;
                 }
             }
         }
-
-        return status;
     }
 
     void traverse(uint32_t rayID, per_thread_info &thread_info){
         TraversalState& state = traversal_states_[rayID];
         
-        bool exit = false;
+        while(1){
+            switch(state.status){
+                case TraversalStatus::CONTINUE: {
+                    traverse(state, thread_info);
+                    break;
+                }
 
-        while(!exit){
-            // Run traversal until it hits a leaf or finishes
-            uint32_t status = traverse(state, thread_info);
-
-            switch(status){
                 case TraversalStatus::INSTANCE_HIT:{
                     // TLAS -> BLAS
                     BLASNode blas;
@@ -186,33 +148,93 @@ public:
                     state.ray = ray_transform(rays_[rayID], blas.invTransform);
                     state.root_ptr = NODE_ADDR(bvh_ptr, blas.bvh_offset);
                     state.root_level = state.level;
+                    state.status = TraversalStatus::CONTINUE;
+                    break;
+                }
+
+                case TraversalStatus::TRI_LEAF_HIT: {
+                    uint32_t tri_count = state.prim_count;
+                    uint32_t tri_base_id = state.prim_base_id;
+                    uint32_t tri_finished_count = state.prim_batch_finished_count * RT_TRI_INTERSECTION_WIDTH;
+
+                    Triangle tris[RT_TRI_INTERSECTION_WIDTH];
+
+                    for(uint32_t i = tri_finished_count; i < tri_count; i += RT_TRI_INTERSECTION_WIDTH){
+                        uint32_t tri_start_id = tri_base_id + i; 
+                        uint32_t tri_start_addr = TRI_ADDR(tri_ptr, tri_start_id);
+
+                        uint32_t tri_batch_size = std::min(tri_count - i, (uint32_t)RT_TRI_INTERSECTION_WIDTH);
+                        uint32_t tri_fetch_size = sizeof(Triangle) * tri_batch_size;
+
+                        dcache_read(&tris[0], tri_start_addr, tri_fetch_size);
+                        thread_info.RT_mem_accesses.emplace_back(tri_start_addr, tri_fetch_size, TransactionType::BVH_QUAD_LEAF);
+
+                        ray_nTri_intersect(tris, tri_start_id, tri_batch_size, state);
+
+                        if(state.has_prim_hit()){
+
+                            if(state.leaf_flags == NON_OPAQUE){
+                                for(uint32_t idx = 0; idx < RT_TRI_INTERSECTION_WIDTH; idx++){
+                                    if(state.prim_hit[idx].valid){
+                                        shader_queues[ShaderType::ANY].push((idx << 24) | rayID);
+                                    }
+                                }
+                                return;
+                            }
+
+                            else if(state.leaf_flags == OPAQUE){
+                                // Comparator Tree
+                                // Assume RT_TRI_INTERSECTION_WIDTH == 4 for now
+                                Hit h0 = Hit::compare(state.prim_hit[0], state.prim_hit[1]);
+                                Hit h1 = Hit::compare(state.prim_hit[2], state.prim_hit[3]);
+                                state.best_hit = Hit::compare(h0, h1); 
+                            }
+
+                        }
+                    }
+
+                    state.status = TraversalStatus::CONTINUE;
+                    break;
+                }
+
+                case TraversalStatus::PROCEDURAL_LEAF_HIT: {
+                    uint32_t prim_count = state.prim_count;
+                    uint32_t prim_base_id = state.prim_base_id;
+                    uint32_t prim_finished_count = state.prim_batch_finished_count * RT_BOX_INTERSECTION_WIDTH;
+
+                    AABB prim_boxes[RT_BOX_INTERSECTION_WIDTH];
+
+                    for(uint32_t i = prim_finished_count; i < prim_count; i += RT_BOX_INTERSECTION_WIDTH){
+                        uint32_t prim_start_id = prim_base_id + i; 
+                        uint32_t prim_aabb_start_addr = PRIM_AABB_ADDR(aabb_ptr, prim_start_id);
+
+                        uint32_t prim_batch_size = std::min(prim_count - i, (uint32_t)RT_BOX_INTERSECTION_WIDTH);
+                        uint32_t prim_fetch_size = sizeof(AABB) * prim_batch_size;
+
+                        dcache_read(&prim_boxes[0], prim_aabb_start_addr, prim_fetch_size);
+                        thread_info.RT_mem_accesses.emplace_back(prim_aabb_start_addr, prim_fetch_size, TransactionType::BVH_PROCEDURAL_LEAF);
+
+                        ray_nBox_intersect(prim_boxes, prim_start_id, prim_batch_size, state); 
+
+                        if(state.has_prim_hit()){
+                            for(uint32_t idx = 0; idx < RT_BOX_INTERSECTION_WIDTH; idx++){
+                                if(state.prim_hit[idx].valid){
+                                    shader_queues[ShaderType::INTERSECTION].push((idx << 24) | rayID);
+                                }
+                            }
+                            return;
+                        }
+                    }
+
+                    state.status = TraversalStatus::CONTINUE;
                     break;
                 }
 
                 case TraversalStatus::RESTART: {
                     state.level = state.root_level;
+                    state.status = TraversalStatus::CONTINUE;
                     break;
                 }
-
-               case TraversalStatus::TO_ANYHIT_SHADER: {
-                    for(uint32_t idx = 0; idx < RT_BOX_INTERSECTION_SIMD_WIDTH; idx++){
-                        if(state.prim_hit[idx].valid){
-                            shader_queues[ShaderType::ANY].push((idx << 24) | rayID);
-                        }
-                    }
-                    exit = true;
-                    break;
-               }
-
-               case TraversalStatus::TO_INTERSECTION_SHADER: {
-                    for(uint32_t idx = 0; idx < RT_BOX_INTERSECTION_SIMD_WIDTH; idx++){
-                        if(state.prim_hit[idx].valid){
-                            shader_queues[ShaderType::INTERSECTION].push((idx << 24) | rayID);
-                        }
-                    }
-                    exit = true;
-                    break;
-               }
 
                 case TraversalStatus::FINISHED: {
                     if(state.root_ptr == tlas_ptr || state.root_level == 0 || state.trail[0] == RT_BVH_WIDTH){
@@ -224,7 +246,7 @@ public:
                         }else{
                             shader_queues[ShaderType::MISS].push(rayID);
                         }
-                        exit = true;
+                        return;
                     }else{
                         // BLAS Finished (BLAS -> TLAS)
                         state.ray = rays_[rayID];
@@ -237,6 +259,8 @@ public:
                         }
 
                         state.root_level = 0;
+
+                        state.status = TraversalStatus::CONTINUE;
                     }
                     break;
                 }
@@ -252,6 +276,7 @@ public:
         blas_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_BLAS_PTR);
         bvh_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_BVH_PTR);
         tri_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TRI_PTR);
+        aabb_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_AABB_PTR);
 
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             uint32_t rayID = rs1_data[tid].u32;
@@ -394,7 +419,7 @@ public:
             uint32_t rayID = rs1_data[tid].u32;
             uint32_t hitID = rs2_data[tid].u32;
             
-            if(rayID == 0 || hitID >= RT_BOX_INTERSECTION_SIMD_WIDTH) continue;
+            if(rayID == 0 || hitID >= RT_BOX_INTERSECTION_WIDTH) continue;
             
             TraversalState& state = traversal_states_[rayID];
             
@@ -402,9 +427,12 @@ public:
                 case VX_RT_ANYHIT_IGNORE: 
                 case VX_RT_INTERSECTION_IGNORE:
                     state.prim_hit[hitID].valid = false;
+                    
                     if(!state.has_prim_hit()){
+                        state.prim_batch_finished_count++;
                         traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                     }
+
                     break;
                 case VX_RT_ANYHIT_ACCEPT: 
                     if(state.prim_hit[hitID].t < state.best_hit.t){
@@ -414,22 +442,14 @@ public:
                     state.prim_hit[hitID].valid = false;
 
                     if(!state.has_prim_hit()){
+                        state.prim_batch_finished_count++;
                         traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                     }
+
                     break;
                 case VX_RT_INTERSECTION_ACCEPT: {
-                    #ifdef RT_SHADER_ANYHIT_ENABLE
-                        if(state.prim_hit[hitID].t < state.best_hit.t){
-                            // candidate
-                            shader_queues[ShaderType::ANY].push((hitID << 24) | rayID);
-                        }else{
-                            state.prim_hit[hitID].valid = false;
-
-                            if(!state.has_prim_hit()){
-                                traverse(rayID, trace_data->m_per_scalar_thread[tid]);
-                            }
-                        }
-                    #else
+                    if(state.leaf_flags == OPAQUE){
+                        // No AHS
                         if(state.prim_hit[hitID].t < state.best_hit.t){
                             state.best_hit = state.prim_hit[hitID];
                         }
@@ -437,9 +457,22 @@ public:
                         state.prim_hit[hitID].valid = false;
 
                         if(!state.has_prim_hit()){
+                            state.prim_batch_finished_count++;
                             traverse(rayID, trace_data->m_per_scalar_thread[tid]);
                         }
-                    #endif
+                    }else{
+                        if(state.prim_hit[hitID].t < state.best_hit.t){
+                            // candidate
+                            shader_queues[ShaderType::ANY].push((hitID << 24) | rayID);
+                        }else{
+                            state.prim_hit[hitID].valid = false;
+
+                            if(!state.has_prim_hit()){
+                                state.prim_batch_finished_count++;
+                                traverse(rayID, trace_data->m_per_scalar_thread[tid]);
+                            }
+                        }
+                    }
                     break;
                 }
                 default: break;
@@ -457,7 +490,7 @@ private:
     uint32_t num_blocks_;
     uint32_t num_lanes_;
 
-    uint32_t tlas_ptr, blas_ptr, bvh_ptr, tri_ptr;
+    uint32_t tlas_ptr, blas_ptr, bvh_ptr, tri_ptr, aabb_ptr;
 
     uint32_t cur_rayid_; // 0 as the invalid ray
     std::unordered_map<uint32_t, Ray> rays_;

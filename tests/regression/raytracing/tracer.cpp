@@ -143,6 +143,9 @@ int Tracer::init(const char *kernel_file, const char* model_file, uint32_t mesh_
   RT_CHECK(vx_mem_alloc(device_, sizeof(uint64_t) * 4, VX_MEM_READ, &sbtBuffer_));
   RT_CHECK(vx_mem_address(sbtBuffer_, &kernel_arg_.sbt_addr));
   
+  // allocate AABB buffer
+  RT_CHECK(vx_mem_alloc(device_, scene_->aabb_buf().size() * sizeof(AABB), VX_MEM_READ, &aabbBuffer_));
+  RT_CHECK(vx_mem_address(aabbBuffer_, &kernel_arg_.aabb_addr));
 
   return 0;
 }
@@ -219,14 +222,18 @@ int Tracer::setup(float camera_vfov, float zoom, float3_t light_pos, float3_t li
   RT_CHECK(vx_mem_address(closest_hit_shader_buffer_, &tmp_sbt[1]));
   RT_CHECK(vx_mem_address(intersection_shader_buffer_, &tmp_sbt[2]));
   RT_CHECK(vx_mem_address(any_hit_shader_buffer_, &tmp_sbt[3]));
-
   RT_CHECK(vx_copy_to_dev(sbtBuffer_, tmp_sbt, 0, sizeof(uint64_t) * 4));
+
+  // upload AABB data
+  RT_CHECK(vx_copy_to_dev(aabbBuffer_, scene_->aabb_buf().data(), 0, scene_->aabb_buf().size() * sizeof(AABB)));
+
 
   RT_CHECK(vx_dcr_write(device_, 0x00000006, (uint32_t)(kernel_arg_.tlas_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x00000007, (uint32_t)(kernel_arg_.blas_addr)));
-  //RT_CHECK(vx_dcr_write(device_, 0x00000008, (uint32_t)(kernel_arg_.bvh_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x00000008, (uint32_t)(kernel_arg_.qBvh_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x00000009, (uint32_t)(kernel_arg_.tri_addr)));
+  RT_CHECK(vx_dcr_write(device_, 0x0000000A, (uint32_t)(kernel_arg_.aabb_addr)));
+
   //RT_CHECK(vx_dcr_write(device_, 0x0000000C, (uint32_t)(kernel_arg_.sbt_addr)));
   return 0;
 }

@@ -35,6 +35,7 @@ private:
   vx_buffer_h blasBuffer_ = nullptr;    // store BLAS nodes
   //vx_buffer_h bvhBuffer_ = nullptr;     // store BVH nodes
   vx_buffer_h qBvhBuffer_ = nullptr;    // store Quantized BVH nodes
+  vx_buffer_h aabbBuffer_ = nullptr;    // store AABBs of Procedural Primitives
 
   vx_buffer_h sbtBuffer_ = nullptr;
   vx_buffer_h miss_shader_buffer_ = nullptr;

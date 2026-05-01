@@ -12,7 +12,7 @@
 #define T_MIN 0.0001f
 #define T_MAX LARGE_FLOAT
 
-inline float fast_rand(uint32_t seed) {
+float fast_rand(uint32_t& seed) {
     seed = seed * 1664525u + 1013904223u;
     return (float)(seed & 0xFFFFFF) / 16777216.0f;
 }
@@ -21,7 +21,7 @@ ray_t GenerateRay(uint32_t x, uint32_t y, uint32_t sample_idx, const kernel_arg_
     uint32_t seed = x + y * arg->dst_width + sample_idx * (arg->dst_width * arg->dst_height);
 
     float jitter_x = fast_rand(seed) - 0.5f;
-    float jitter_y = fast_rand(seed + 1) - 0.5f;
+    float jitter_y = fast_rand(seed) - 0.5f;
 
     auto pos = float3_t(0.0, 0.0, 0.0);
     auto front = float3_t(1.0, 0.0, 0.0);

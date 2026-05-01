@@ -8,7 +8,17 @@
 #define BINS 8
 // BVH class implementation
 
-BVH::BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t *bvh_nodes, bvh_quantized_node_t *bvh_qnodes, uint32_t *triIndices, tri_ex_t *triEx, uint32_t tri_offset) {
+BVH::BVH(
+  tri_t *triData, 
+  float3_t *centroids, 
+  uint32_t triCount, 
+  bvh_node_t *bvh_nodes, 
+  bvh_quantized_node_t *bvh_qnodes, 
+  uint32_t *triIndices, 
+  tri_ex_t *triEx, 
+  AABB* prim_aabbs,
+  uint32_t tri_offset
+) {
   bvhNodes_ = bvh_nodes;
   bvhQNodes_ = bvh_qnodes;
   centroids_ = centroids;
@@ -16,6 +26,7 @@ BVH::BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t *bvh
   triData_ = triData;
   triIndices_ = triIndices;
   triEx_ = triEx;
+  prim_aabbs_ = prim_aabbs;
   tri_offset_ = tri_offset;
   this->build();
   //visualize(bvhNodes_);
@@ -38,7 +49,7 @@ void BVH::subdivide(bvh_node_t &node) {
   //MAX num triangles per leaf = ???
   this->updateNodeBounds(node);
 
-  if(node.triCount <= 1){
+  if(node.triCount <= 4){
     return;
   }
   
@@ -52,7 +63,7 @@ void BVH::subdivide(bvh_node_t &node) {
 
     for (int i = 0; i < clusters.size(); i++) {
       auto& c = clusters[i];
-      if (c.triCount <= 1) continue;
+      if (c.triCount <= 4) continue;
       
       Split s = findBestSplitPlane(c);
       
@@ -204,6 +215,21 @@ void BVH::updateNodeBounds(bvh_node_t &node) const {
   node.centroidMax = centroid_max;
 }
 
+AABB BVH::calcTriBounds(const tri_t &tri) const {
+  AABB aabb;
+  aabb.bmin = float3_t(LARGE_FLOAT);
+  aabb.bmax = float3_t(-LARGE_FLOAT);
+
+  aabb.bmin = fminf(aabb.bmin, tri.v0);
+  aabb.bmin = fminf(aabb.bmin, tri.v1);
+  aabb.bmin = fminf(aabb.bmin, tri.v2);
+  aabb.bmax = fmaxf(aabb.bmax, tri.v0);
+  aabb.bmax = fmaxf(aabb.bmax, tri.v1);
+  aabb.bmax = fmaxf(aabb.bmax, tri.v2);
+
+  return aabb;
+}
+
 void BVH::linearizeData() {
   std::vector<tri_t> sortedTriData(triCount_);
   std::vector<tri_ex_t> sortedTriEx(triCount_);
@@ -214,6 +240,9 @@ void BVH::linearizeData() {
       sortedTriData[i] = triData_[triIdx];
       sortedTriEx[i] = triEx_[triIdx];
       sortedCentroids[i] = centroids_[triIdx];
+
+      prim_aabbs_[i] = calcTriBounds(sortedTriData[i]);
+      //std::cout << prim_aabbs_[i].bmin.x << " " << prim_aabbs_[i].bmin.y << " " <<prim_aabbs_[i].bmin.z << std::endl; 
   }
 
   std::copy(sortedTriData.begin(), sortedTriData.end(), triData_);
@@ -228,15 +257,10 @@ void BVH::quantize(){
 
     qNode.leftFirst = node.leftFirst; 
 
-    // Right now, this is just to identify if node is toplevel or not
-    // Could be storing childnode types (internal/leaf), then traversal stack entry should include a isLeaf bit.
-    // qNode.imask = 0; 
-
     if(!node.isLeaf()){
       qNode.type = BVH_INTERNAL;
       qNode.internal.origin = node.aabbMin;
 
-      //uint8_t
       qNode.ex = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.x - node.aabbMin.x) / 255.0f)));
       qNode.ey = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.y - node.aabbMin.y) / 255.0f)));
       qNode.ez = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.z - node.aabbMin.z) / 255.0f)));
@@ -263,7 +287,9 @@ void BVH::quantize(){
         qNode.internal.children[k] = qChild;
       }
     }else{
-      qNode.type = PRIMITIVE_LEAF;
+      qNode.type = TRIANGLE_LEAF;
+      //qNode.type = PROCEDURAL_LEAF;
+      qNode.leaf.flags = OPAQUE;
       qNode.leaf.primCount = node.triCount;
       qNode.leftFirst += tri_offset_;
     }

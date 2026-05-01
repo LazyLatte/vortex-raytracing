@@ -42,12 +42,6 @@ struct tri_ex_t {
   uint32_t texId;
 };
 
-struct ray_hit_t {
-  float t = LARGE_FLOAT, u, v;
-  uint32_t primitiveID;
-  uint32_t instanceID;
-};
-
 struct child_data_t {
   uint8_t meta;
   uint8_t qaabb[6];
@@ -59,7 +53,7 @@ struct bvh_quantized_node_t {
 
 #define BVH_INTERNAL    0
 #define INSTANCE_LEAF   1
-#define PRIMITIVE_LEAF  3
+#define TRIANGLE_LEAF   3
 #define PROCEDURAL_LEAF 4
   uint8_t type;
   int8_t ex, ey, ez;
@@ -74,12 +68,17 @@ struct bvh_quantized_node_t {
 
       // --- LEAF ---
       struct {
-          uint32_t shaderIndex;
           union {
-            uint32_t instanceID;
-            uint32_t primCount;
+              uint32_t instanceID;
+              uint32_t primCount;
           };
-          uint8_t payload[48];   
+
+          uint32_t shader_idx;
+
+        #define OPAQUE 0
+        #define NON_OPAQUE 1
+          uint8_t flags;
+          uint8_t payload[47];   
       } leaf;
   };
 };
@@ -185,6 +184,8 @@ typedef struct {
   uint32_t dst_height;
   uint64_t dst_addr;
 
+  uint64_t aabb_addr;
+  
 	uint64_t tri_addr;
 	uint64_t triEx_addr;
 	uint64_t triIdx_addr;

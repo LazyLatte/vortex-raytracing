@@ -39,6 +39,9 @@ int Scene::init() {
   bvh_nodes_.resize(num_tris * 2);
   bvh_quantized_nodes_.resize(num_tris * 2);
   blas_nodes_.resize(meshes_.size());
+
+  aabb_buf_.resize(num_tris);
+
   // create BVH objects
   uint32_t bvh_offset = 0;
   uint32_t tri_offset = 0;
@@ -101,6 +104,7 @@ int Scene::init() {
       bvh_quantized_nodes_.data() + bvh_offset, 
       triIdx_buf_.data() + tri_offset, 
       triEx_buf_.data(), 
+      aabb_buf_.data(),
       tri_offset
     );
 

@@ -33,6 +33,7 @@ public:
   const auto &tex_buf() const { return tex_buf_; }
   const auto &mat_buf() const { return mat_buf_; }
 
+  const auto &aabb_buf() const { return aabb_buf_; }
 private:
 
   void arrangeMeshesAroundY(float margin);
@@ -50,4 +51,6 @@ private:
   std::vector<uint32_t> triIdx_buf_;
   std::vector<uint8_t> tex_buf_;
   std::vector<material_info_t> mat_buf_;
+
+  std::vector<AABB> aabb_buf_;
 };

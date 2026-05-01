@@ -25,7 +25,7 @@ struct BVHNode {
     uint32_t leftFirst;
 #define BVH_INTERNAL    0
 #define INSTANCE_LEAF   1
-#define PRIMITIVE_LEAF  3
+#define TRIANGLE_LEAF   3
 #define PROCEDURAL_LEAF 4
     uint8_t type;
     int8_t ex, ey, ez;
@@ -40,16 +40,21 @@ struct BVHNode {
 
         // --- LEAF ---
         struct {
-            uint32_t shaderIndex;   // Which intersection shader to trigger
             union {
                 uint32_t instanceID;
-                uint32_t primCount;
+                uint32_t prim_count;
             };
+
+            uint32_t shader_idx;
+
+        #define OPAQUE 0
+        #define NON_OPAQUE 1
+            uint8_t flags;
             // uint32_t primStride;    // Size of each primitive (bytes)
             // uint32_t rayMask;       // Culling mask
             
             // Can fit 1 Triangle, 2 Spheres, or 10 AABB-only pointers.
-            uint8_t payload[48];   
+            uint8_t payload[47];   
         } leaf;
     };
 };
@@ -86,6 +91,12 @@ struct Hit {
         , valid(false) 
     {}
 
+    // Hit(uint32_t _primitiveID, uint32_t _instanceID) 
+    //     , primitiveID(_primitiveID)
+    //     , instanceID(_instanceID)
+    //     , valid(true) 
+    // {}
+
     Hit(float _t, float _u, float _v, uint32_t _primitiveID, uint32_t _instanceID) 
         : t(_t)
         , u(_u)
@@ -119,19 +130,25 @@ struct BoxHit {
 typedef ShortStack<uint32_t, RT_STACK_SIZE> TraversalStack;
 typedef std::array<uint32_t, MAX_TRAIL_LEVEL> TraversalTrail; //trail[i]: 0 ~ BVH_WIDTH
 
-enum TraversalStatus {FINISHED, CONTINUE, RESTART, INSTANCE_HIT, LEAF_HIT, TO_ANYHIT_SHADER, TO_INTERSECTION_SHADER };
+enum TraversalStatus {FINISHED, CONTINUE, RESTART, INSTANCE_HIT, TRI_LEAF_HIT, PROCEDURAL_LEAF_HIT };
 
 struct TraversalState {
     Ray ray;
     Hit best_hit;
-    Hit prim_hit[RT_BOX_INTERSECTION_SIMD_WIDTH];
+    Hit prim_hit[RT_BOX_INTERSECTION_WIDTH];
     TraversalTrail trail;
     TraversalStack stack;
+    TraversalStatus status;
     uint32_t root_ptr;
     uint32_t root_level;
     uint32_t level;
     uint32_t instanceID;
     float tmin;
+
+    uint8_t leaf_flags;
+    uint32_t prim_count;
+    uint32_t prim_base_id;
+    uint32_t prim_batch_finished_count;
 
     TraversalState(){}
     TraversalState(Ray ray, uint32_t root_ptr){
@@ -142,6 +159,7 @@ struct TraversalState {
         this->level = 0;
         this->instanceID = 0xFFFFFFFF;
         this->tmin = 0.0f;
+        this->status = TraversalStatus::CONTINUE;
     }
 
     int32_t findNextParentLevel(){
@@ -153,11 +171,12 @@ struct TraversalState {
         return -1;
     }
 
-    uint32_t pop(uint32_t& node_ptr){
+    uint32_t pop(){
         int32_t parentLevel = findNextParentLevel();
 
         if(parentLevel < 0){
-            return TraversalStatus::FINISHED;
+            status = TraversalStatus::FINISHED;
+            return 0;
         }
 
         trail[parentLevel]++;
@@ -167,23 +186,26 @@ struct TraversalState {
         }
 
         if(stack.empty()){
-            return TraversalStatus::RESTART;
+            status = TraversalStatus::RESTART;
+            return 0;
         }
 
         uint32_t e = stack.pop();
-        node_ptr = e & 0xFFFFFFFE;
+        uint32_t node_ptr = e & 0xFFFFFFFE;
 
         if(e & 1){
             trail[parentLevel] = RT_BVH_WIDTH;
         }
 
         level = parentLevel + 1;
-        return TraversalStatus::CONTINUE; 
+        status = TraversalStatus::CONTINUE;
+        
+        return node_ptr;
     }
 
     bool has_prim_hit(){
         bool h = false;
-        for(int i=0; i<RT_BOX_INTERSECTION_SIMD_WIDTH; i++){
+        for(int i=0; i<RT_BOX_INTERSECTION_WIDTH; i++){
             h |= prim_hit[i].valid;
         }
         return h;
@@ -229,7 +251,7 @@ void ray_box_intersect(const Ray &ray, float min_x, float min_y, float min_z, fl
     t_far = std::min(t_far, std::max(tz1, tz2));
 }
 
-uint32_t ray_nBox_intersect(BVHNode& node, TraversalState& state, std::array<BoxHit, RT_BOX_INTERSECTION_SIMD_WIDTH>& box_hits){
+uint32_t ray_nBox_intersect(BVHNode& node, TraversalState& state, std::array<BoxHit, RT_BOX_INTERSECTION_WIDTH>& box_hits){
     uint32_t valid_count = 0;
     for(int i=0; i<RT_BVH_WIDTH; i++){
         if(node.internal.children[i].meta == 0) continue;
@@ -251,6 +273,27 @@ uint32_t ray_nBox_intersect(BVHNode& node, TraversalState& state, std::array<Box
         }
     }
     return valid_count;
+}
+
+void ray_nBox_intersect(AABB* aabbs, uint32_t primBaseID, uint32_t primCount, TraversalState& state){
+    for(int i=0; i<primCount; i++){
+        float min_x = aabbs[i].min[0];
+        float min_y = aabbs[i].min[1];
+        float min_z = aabbs[i].min[2];
+
+        float max_x = aabbs[i].max[0];
+        float max_y = aabbs[i].max[1];
+        float max_z = aabbs[i].max[2];
+
+        float t_near, t_far;
+        ray_box_intersect(state.ray, min_x, min_y, min_z, max_x, max_y, max_z, t_near, t_far);
+
+        if (t_near <= t_far && t_far > state.tmin && t_near < state.best_hit.t) {
+            state.prim_hit[i].primitiveID = primBaseID + i;
+            state.prim_hit[i].instanceID = state.instanceID;
+            state.prim_hit[i].valid = true;
+        }
+    }
 }
 
 float ray_tri_intersect(const Ray &ray, const Triangle &tri, float &u, float &v){
