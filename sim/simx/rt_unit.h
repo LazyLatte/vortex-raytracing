@@ -58,7 +58,7 @@ public:
     void dcache_read(void* data, uint64_t addr, uint32_t size);
     void dcache_write(const void* data, uint64_t addr, uint32_t size);
 
-    void traverse(uint32_t wid, uint32_t tid, RtuTraceData* trace_data);
+    void traverse(uint32_t wid, uint32_t tid, const std::vector<reg_data_t>& rs1_data, RtuTraceData* trace_data);
     void get_work(uint32_t wid, std::vector<reg_data_t>& rd_data);
     void get_attr(uint32_t wid, uint32_t tid, uint32_t attr, std::vector<reg_data_t>& rd_data);
     void set_attr(uint32_t wid, uint32_t tid, uint32_t attr, const std::vector<reg_data_t>& rs1_data, const std::vector<reg_data_t>& rs2_data, const std::vector<reg_data_t>& rs3_data);

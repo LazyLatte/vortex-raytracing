@@ -41,19 +41,6 @@ ray_t GenerateRay(uint32_t x, uint32_t y, uint32_t sample_idx, const kernel_arg_
     return ray_t{pos, dir};
 }
 
-// ray_t GenerateRay(uint32_t x, uint32_t y, uint32_t sample_idx, const kernel_arg_t *__UNIFORM__ arg) {
-//   auto pos = float3_t(0.0, 0.0, 0.0);
-//   auto front = float3_t(1.0, 0.0, 0.0);
-//   float FOV = 1.0;
-//   float u = (x * 2.0 - arg->dst_width) / arg->dst_height;
-//   float v = (y * 2.0 - arg->dst_height) / arg->dst_height;
-
-//   auto right = cross(front, float3_t(0.0, 1.0, 0.0));
-//   auto up = cross(right, front);
-//   auto dir = normalize(u * right + v * up + FOV * front);
-//   return ray_t{pos, dir};
-// }
-
 void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
   bool *producer_done = (bool*)__local_mem(sizeof(bool));
   *producer_done = 0;
@@ -95,7 +82,8 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
                 ray.dir.y, 
                 ray.dir.z, 
                 T_MIN, T_MAX,
-                (uint32_t)(&payloads[i])
+                (uint32_t)(&payloads[i]),
+                arg->tlas_addr
               );
             }else{
               payloads[i].stop = true;
@@ -125,7 +113,8 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
                       payloads[i].direction.y, 
                       payloads[i].direction.z, 
                       T_MIN, T_MAX,
-                      (uint32_t)(&payloads[i])
+                      (uint32_t)(&payloads[i]),
+                      arg->tlas_addr
                     );
                     any_active = true;
                 }

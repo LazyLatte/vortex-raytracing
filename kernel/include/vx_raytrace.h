@@ -27,7 +27,8 @@ static __attribute__((always_inline)) void trace_ray(
     float rd_z, 
     float tmin,
     float tmax,
-    uint32_t payload_addr
+    uint32_t payload_addr,
+    uint32_t tlas_addr
 ) {
     register float ox __asm__("f11") = ro_x;
     register float oy __asm__("f12") = ro_y;
@@ -40,11 +41,14 @@ static __attribute__((always_inline)) void trace_ray(
     register float rs_tmin __asm__("f17") = tmin;
     register float rs_tmax __asm__("f18") = tmax;
 
+    register uint32_t rs_payload_addr __asm__("x19") = payload_addr;
+    register uint32_t rs_tlas_addr __asm__("x20") = tlas_addr;
+
     __asm__ volatile (
-        ".insn r %[insn], 0, 3, x0, %[rs_ray], %[rs_payload_addr]"
+        ".insn r %[insn], 0, 3, x0, %[rs_ray], %[rs_addrs]"
         :: [insn] "i"(RISCV_CUSTOM0)
         , [rs_ray] "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(rs_tmin), "f"(rs_tmax)
-        , [rs_payload_addr] "r"(payload_addr)
+        , [rs_addrs] "r"(rs_payload_addr), "r"(rs_tlas_addr)
     );
 }
 
@@ -64,9 +68,9 @@ inline uint32_t get_attr() {
 template <uint32_t attr>
 static __attribute__((always_inline)) void set_attr(float attr0, float attr1, float attr2) { 
 
-    register float v0 __asm__("f19") = attr0;
-    register float v1 __asm__("f20") = attr1;
-    register float v2 __asm__("f21") = attr2;
+    register float v0 __asm__("f21") = attr0;
+    register float v1 __asm__("f22") = attr1;
+    register float v2 __asm__("f23") = attr2;
 
     __asm__ volatile (
         ".insn r %0, 3, 3, x0, x%[rs_id], %[rs_val]" 

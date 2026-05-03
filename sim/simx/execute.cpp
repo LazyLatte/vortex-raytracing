@@ -1601,7 +1601,7 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
         for (uint32_t t = thread_start; t < num_threads; ++t) {
           if (!warp.tmask.test(t))
             continue;
-          core_->rt_unit()->traverse(wid, t, trace_data.get());
+          core_->rt_unit()->traverse(wid, t, rs1_data, trace_data.get());
         } 
        
       } break;

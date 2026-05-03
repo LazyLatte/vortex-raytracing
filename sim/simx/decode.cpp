@@ -1294,13 +1294,14 @@ void Emulator::decode(uint32_t code, uint32_t wid, uint64_t uuid) {
         auto i_trace = std::allocate_shared<Instr>(instr_pool_, uuid_x, FUType::RTU);
         i_trace->setArgs(IntrRtuArgs{});
         i_trace->setOpType(RtuType::TRACE);
+        i_trace->setSrcReg(0, rs2 + 1, RegType::Integer); // tlas_addr
         ibuffer.push_back(i_trace);
       } break;
       case 1: { // Get Work
         auto i_get_work = std::allocate_shared<Instr>(instr_pool_, uuid, FUType::RTU);
         i_get_work->setArgs(IntrRtuArgs{});
         i_get_work->setOpType(RtuType::GET_WORK);
-        i_get_work->setDestReg(rd, RegType::Integer);
+        i_get_work->setDestReg(rd, RegType::Integer); // shader_addr
         ibuffer.push_back(i_get_work);
       } break;
       case 2: { // Get Attr

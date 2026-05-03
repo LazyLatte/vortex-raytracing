@@ -12,8 +12,7 @@ void _start(kernel_arg_t *arg){
   uint32_t instanceID = vortex::rt::get_attr<VX_RT_HIT_INSTANCE_ID>();
   uint32_t primitiveID = vortex::rt::get_attr<VX_RT_HIT_PRIMITIVE_ID>();
   uint32_t payload_addr = vortex::rt::get_attr<VX_RT_PAYLOAD_ADDR>();
-  //vortex::rt::release_ray(rayID);
-  //vx_printf("%d\n", primitiveID);
+
   ray_payload_t *payload = reinterpret_cast<ray_payload_t*>(payload_addr);
   float t  = *reinterpret_cast<float*>(&_t);
   float bx = *reinterpret_cast<float*>(&_u);

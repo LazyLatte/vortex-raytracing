@@ -66,15 +66,15 @@ public:
         }
     }
 
-    void traverse(uint32_t wid, uint32_t tid, RtuTraceData* trace_data){
+    void traverse(uint32_t wid, uint32_t tid, const std::vector<reg_data_t>& rs1_data, RtuTraceData* trace_data){
         ShaderState& state = shader_states_.at(wid).at(tid);
 
-        uint32_t tlas_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TLAS_PTR);
+        uint32_t tlas_addr = rs1_data[tid].u32;
 
         uint32_t rayID = (ray_id_++) & 0x0FFFFFFF;
 
         rt_core_->rays_[rayID] = state.world_ray;
-        rt_core_->traversal_states_[rayID] = TraversalState(state.world_ray, tlas_ptr, state.tmin, state.tmax);
+        rt_core_->traversal_states_[rayID] = TraversalState(state.world_ray, tlas_addr, state.tmin, state.tmax);
         payload_addrs_[rayID] = state.payload_addr;
 
         uint32_t type = rt_core_->traverse(rayID, trace_data->m_per_scalar_thread[tid]);
@@ -370,8 +370,8 @@ void RTUnit::dcache_write(const void* data, uint64_t addr, uint32_t size){
     impl_->dcache_write(data, addr, size);
 }
 
-void RTUnit::traverse(uint32_t wid, uint32_t tid, RtuTraceData* trace_data){
-    impl_->traverse(wid, tid, trace_data);
+void RTUnit::traverse(uint32_t wid, uint32_t tid, const std::vector<reg_data_t>& rs1_data, RtuTraceData* trace_data){
+    impl_->traverse(wid, tid, rs1_data, trace_data);
 }
 
 void RTUnit::get_work(uint32_t wid, std::vector<reg_data_t>& rd_data){

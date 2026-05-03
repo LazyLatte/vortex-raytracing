@@ -287,8 +287,8 @@ void BVH::quantize(){
         qNode.internal.children[k] = qChild;
       }
     }else{
-      qNode.type = TRIANGLE_LEAF;
-      //qNode.type = PROCEDURAL_LEAF;
+      //qNode.type = TRIANGLE_LEAF;
+      qNode.type = PROCEDURAL_LEAF;
       qNode.leaf.flags = OPAQUE;
       //qNode.leaf.flags = NON_OPAQUE;
       qNode.leaf.primCount = node.triCount;
