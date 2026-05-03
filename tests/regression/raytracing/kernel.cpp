@@ -162,10 +162,9 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
     while (*producer_done == 0) {
       uint32_t ret = vortex::rt::get_work();
       if (ret != 0) {
-        uint32_t type = __builtin_ctz(ret >> 28);
-        uint32_t id = ret & 0x0FFFFFFF;
+        uint32_t type = __builtin_ctz(ret);
         auto shader = (shader_t)(sbt[type]);
-        shader(id, arg);
+        shader(arg);
       }
     }
   }

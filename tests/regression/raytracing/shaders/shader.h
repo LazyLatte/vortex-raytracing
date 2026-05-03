@@ -3,7 +3,7 @@
 #include "../common.h"
 
 //relocatable binary!!!
-typedef void (*shader_t)(uint32_t, kernel_arg_t *);
+typedef void (*shader_t)(kernel_arg_t *);
 
 struct ray_payload_t {
   // Ray Data

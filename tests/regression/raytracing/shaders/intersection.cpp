@@ -4,18 +4,16 @@
 #include <vx_raytrace.h>
 
 extern "C" {
-void _start(uint32_t data, kernel_arg_t *arg){
-    if(data == 0) return;
-    uint32_t rayID = data & 0x00FFFFFF;
-    uint32_t hitID = (data & 0x0F000000) >> 24;
-
-    uint32_t ox = vortex::rt::get_attr<VX_RT_OBJECT_RAY_RO_X>(rayID);
-    uint32_t oy = vortex::rt::get_attr<VX_RT_OBJECT_RAY_RO_Y>(rayID);
-    uint32_t oz = vortex::rt::get_attr<VX_RT_OBJECT_RAY_RO_Z>(rayID);
-    uint32_t dx = vortex::rt::get_attr<VX_RT_OBJECT_RAY_RD_X>(rayID);
-    uint32_t dy = vortex::rt::get_attr<VX_RT_OBJECT_RAY_RD_Y>(rayID);
-    uint32_t dz = vortex::rt::get_attr<VX_RT_OBJECT_RAY_RD_Z>(rayID);
-    uint32_t primitiveID = vortex::rt::get_attr<VX_RT_HIT_PRIMITIVE_ID>(rayID, hitID);
+void _start(kernel_arg_t *arg){
+    uint32_t ox = vortex::rt::get_attr<VX_RT_OBJECT_RAY_RO_X>();
+    uint32_t oy = vortex::rt::get_attr<VX_RT_OBJECT_RAY_RO_Y>();
+    uint32_t oz = vortex::rt::get_attr<VX_RT_OBJECT_RAY_RO_Z>();
+    uint32_t dx = vortex::rt::get_attr<VX_RT_OBJECT_RAY_RD_X>();
+    uint32_t dy = vortex::rt::get_attr<VX_RT_OBJECT_RAY_RD_Y>();
+    uint32_t dz = vortex::rt::get_attr<VX_RT_OBJECT_RAY_RD_Z>();
+    uint32_t _tmin = vortex::rt::get_attr<VX_RT_T_MIN>();
+    uint32_t _tmax = vortex::rt::get_attr<VX_RT_T_MAX>();
+    uint32_t primitiveID = vortex::rt::get_attr<VX_RT_HIT_PRIMITIVE_ID>();
 
     float ro_x = *reinterpret_cast<float*>(&ox);
     float ro_y = *reinterpret_cast<float*>(&oy);
@@ -23,6 +21,9 @@ void _start(uint32_t data, kernel_arg_t *arg){
     float rd_x = *reinterpret_cast<float*>(&dx);
     float rd_y = *reinterpret_cast<float*>(&dy);
     float rd_z = *reinterpret_cast<float*>(&dz);
+
+    float tmin = *reinterpret_cast<float*>(&_tmin);
+    float tmax = *reinterpret_cast<float*>(&_tmax);
 
     auto tri_ptr = reinterpret_cast<const tri_t *>(arg->tri_addr);
     const tri_t& tri = tri_ptr[primitiveID];
@@ -62,12 +63,14 @@ void _start(uint32_t data, kernel_arg_t *arg){
 
     float u = w1;
     float v = w2;
-    float t = (fabs(a) < EPSILON || w1 < 0 || w1 > 1 || w2 < 0 || w1 + w2 > 1 || tf <= EPSILON) ?  LARGE_FLOAT : tf;
+    float t = (fabs(a) < EPSILON || w1 < 0 || w1 > 1 || w2 < 0 || w1 + w2 > 1 || tf <= EPSILON) ?  tmax : tf;
+    
 
-    if (t < LARGE_FLOAT) {
-        vortex::rt::commit(rayID, hitID, t, u, v);
+    if (t > tmin && t < tmax) {
+        vortex::rt::set_attr<VX_RT_HIT_ATTRIBUTES>(t, u, v);
+        vortex::rt::commit<VX_RT_INTERSECTION_ACCEPT>();
     }else{
-        vortex::rt::commit<VX_RT_INTERSECTION_IGNORE>(rayID, hitID);
+        vortex::rt::commit<VX_RT_INTERSECTION_IGNORE>();
     }
 }
 }

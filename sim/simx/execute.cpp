@@ -1595,33 +1595,43 @@ instr_trace_t* Emulator::execute(const Instr &instr, uint32_t wid) {
     ,[&](RtuType rtu_type) {
       auto rtuArgs = std::get<IntrRtuArgs>(instrArgs);
       switch (rtu_type) {
-      case RtuType::INIT_RAY: {
-        core_->rt_unit()->init_ray(rs1_data, rd_data);
-        rd_write = true;
-      } break;
       case RtuType::TRACE: {
         auto trace_data = std::make_shared<RtuTraceData>(num_threads);
         trace->data = trace_data;
-        core_->rt_unit()->traverse(rs1_data, trace_data.get());
+        for (uint32_t t = thread_start; t < num_threads; ++t) {
+          if (!warp.tmask.test(t))
+            continue;
+          core_->rt_unit()->traverse(wid, t, trace_data.get());
+        } 
+       
       } break;
       case RtuType::GET_WORK: {     
-        core_->rt_unit()->get_work(rd_data);
+        core_->rt_unit()->get_work(wid, rd_data);
         rd_write = true;
       } break;
-      case RtuType::GET_ATTR: {        
-        core_->rt_unit()->get_attr(rs1_data, rs2_data, rd_data, rtuArgs.imm);
+      case RtuType::GET_ATTR: {   
+        for (uint32_t t = thread_start; t < num_threads; ++t) {
+          if (!warp.tmask.test(t))
+            continue;
+          core_->rt_unit()->get_attr(wid, t, rtuArgs.imm, rd_data);
+        }      
         rd_write = true;
       } break;
       case RtuType::SET_ATTR: {
-        core_->rt_unit()->set_attr(rs1_data, rs2_data, rs3_data, rtuArgs.imm);
+        for (uint32_t t = thread_start; t < num_threads; ++t) {
+          if (!warp.tmask.test(t))
+            continue;
+          core_->rt_unit()->set_attr(wid, t, rtuArgs.imm, rs1_data, rs2_data, rs3_data);
+        }   
       } break;
       case RtuType::COMMIT: {   
         auto trace_data = std::make_shared<RtuTraceData>(num_threads);
-        trace->data = trace_data;    
-        core_->rt_unit()->commit(rs1_data, rs2_data, rtuArgs.imm, trace_data.get());
-      } break;
-      case RtuType::RELEASE: {    
-        core_->rt_unit()->release_ray(rs1_data);
+        trace->data = trace_data;   
+        for (uint32_t t = thread_start; t < num_threads; ++t) {
+          if (!warp.tmask.test(t))
+            continue;
+          core_->rt_unit()->commit(wid, t, rtuArgs.imm, trace_data.get());
+        } 
       } break;
       default:
         std::abort();
