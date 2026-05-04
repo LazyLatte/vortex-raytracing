@@ -42,7 +42,7 @@ void RTCore::traverse(TraversalState& state, per_thread_info &thread_info){
                 }else{
                     for (int32_t i = (int32_t)end - 1; i >= (int32_t)start; i--) {
                         uint32_t node_addr = NODE_ADDR(state.root_ptr, node.leftFirst + box_hits[i].idx);
-                        bool isFarthest = (i == end - 1);
+                        bool isFarthest = (i == (int32_t)end - 1);
                         state.stack.push(node_addr | isFarthest); // encode one bit info into addr
                     }
                 }
@@ -121,11 +121,10 @@ uint32_t RTCore::traverse(uint32_t rayID, per_thread_info &thread_info){
                         else if(state.leaf_flags == OPAQUE){
                             // Comparator Tree
                             // Assume RT_TRI_INTERSECTION_WIDTH == 4 for now
-                            Hit h0 = Hit::compare(state.prim_hit[0], state.prim_hit[1]);
-                            Hit h1 = Hit::compare(state.prim_hit[2], state.prim_hit[3]);
-                            state.best_hit = Hit::compare(h0, h1); 
+                            Hit h0 = Hit::min(state.prim_hit[0], state.prim_hit[1]);
+                            Hit h1 = Hit::min(state.prim_hit[2], state.prim_hit[3]);
+                            state.best_hit = Hit::min(h0, h1); 
                         }
-
                     }
                 }
 
@@ -264,7 +263,7 @@ void RTCore::ray_box_intersect(const Ray &ray, float min_x, float min_y, float m
 
 uint32_t RTCore::ray_nBox_intersect(BVHNode& node, TraversalState& state, std::array<BoxHit, RT_BOX_INTERSECTION_WIDTH>& box_hits){
     uint32_t valid_count = 0;
-    for(int i=0; i<RT_BVH_WIDTH; i++){
+    for(uint32_t i=0; i<RT_BVH_WIDTH; i++){
         if(node.internal.children[i].meta == 0) continue;
         float min_x = node.internal.px + std::ldexp(float(node.internal.children[i].qaabb[0]), node.ex);
         float min_y = node.internal.py + std::ldexp(float(node.internal.children[i].qaabb[1]), node.ey);
@@ -287,7 +286,7 @@ uint32_t RTCore::ray_nBox_intersect(BVHNode& node, TraversalState& state, std::a
 }
 
 void RTCore::ray_nBox_intersect(AABB* aabbs, uint32_t primBaseID, uint32_t primCount, TraversalState& state){
-    for(int i=0; i<primCount; i++){
+    for(uint32_t i=0; i<primCount; i++){
         float min_x = aabbs[i].min[0];
         float min_y = aabbs[i].min[1];
         float min_z = aabbs[i].min[2];
@@ -362,7 +361,7 @@ float RTCore::ray_tri_intersect(const Ray &ray, const Triangle &tri, float &u, f
 }
 
 void RTCore::ray_nTri_intersect(Triangle* tris, uint32_t triBaseID, uint32_t triCount, TraversalState& state){
-    for(int i=0; i<triCount; i++){        
+    for(uint32_t i=0; i<triCount; i++){        
         float u, v;
         float t = ray_tri_intersect(state.ray, tris[i], u, v);
 

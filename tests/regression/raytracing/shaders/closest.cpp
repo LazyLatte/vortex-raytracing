@@ -7,8 +7,8 @@ extern "C" {
 
 void _start(kernel_arg_t *arg){
   uint32_t _t = vortex::rt::get_attr<VX_RT_HIT_T>();
-  uint32_t _u = vortex::rt::get_attr<VX_RT_HIT_U>();
-  uint32_t _v = vortex::rt::get_attr<VX_RT_HIT_V>();
+  uint32_t _u = vortex::rt::get_attr<VX_RT_HIT_ATTR_U>();
+  uint32_t _v = vortex::rt::get_attr<VX_RT_HIT_ATTR_V>();
   uint32_t instanceID = vortex::rt::get_attr<VX_RT_HIT_INSTANCE_ID>();
   uint32_t primitiveID = vortex::rt::get_attr<VX_RT_HIT_PRIMITIVE_ID>();
   uint32_t payload_addr = vortex::rt::get_attr<VX_RT_PAYLOAD_ADDR>();

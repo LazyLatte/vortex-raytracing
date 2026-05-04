@@ -66,18 +66,8 @@ inline uint32_t get_attr() {
 }
 
 template <uint32_t attr>
-static __attribute__((always_inline)) void set_attr(float attr0, float attr1, float attr2) { 
-
-    register float v0 __asm__("f21") = attr0;
-    register float v1 __asm__("f22") = attr1;
-    register float v2 __asm__("f23") = attr2;
-
-    __asm__ volatile (
-        ".insn r %0, 3, 3, x0, x%[rs_id], %[rs_val]" 
-        :: "i"(RISCV_CUSTOM0)
-        , [rs_id]"i"(attr)
-        , [rs_val] "f"(v0), "f"(v1), "f"(v2)
-    );
+inline void set_attr(float val) { 
+    __asm__ volatile (".insn r %0, 3, 3, x0, x%[rs_id], %[rs_val]" :: "i"(RISCV_CUSTOM0), [rs_id]"i"(attr), [rs_val] "f"(val));
 }
 
 template <uint32_t action>

@@ -49,7 +49,7 @@ void BVH::subdivide(bvh_node_t &node) {
   //MAX num triangles per leaf = ???
   this->updateNodeBounds(node);
 
-  if(node.triCount <= 1){
+  if(node.triCount <= MAX_LEAF_PRIMITIVES){
     return;
   }
   
@@ -63,7 +63,7 @@ void BVH::subdivide(bvh_node_t &node) {
 
     for (int i = 0; i < clusters.size(); i++) {
       auto& c = clusters[i];
-      if (c.triCount <= 1) continue;
+      if (c.triCount <= MAX_LEAF_PRIMITIVES) continue;
       
       Split s = findBestSplitPlane(c);
       
@@ -287,8 +287,8 @@ void BVH::quantize(){
         qNode.internal.children[k] = qChild;
       }
     }else{
-      //qNode.type = TRIANGLE_LEAF;
-      qNode.type = PROCEDURAL_LEAF;
+      qNode.type = TRIANGLE_LEAF;
+      //qNode.type = PROCEDURAL_LEAF;
       qNode.leaf.flags = OPAQUE;
       //qNode.leaf.flags = NON_OPAQUE;
       qNode.leaf.primCount = node.triCount;

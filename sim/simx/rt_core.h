@@ -49,11 +49,8 @@ struct BVHNode {
         #define OPAQUE 0
         #define NON_OPAQUE 1
             uint8_t flags;
-            // uint32_t primStride;    // Size of each primitive (bytes)
-            // uint32_t rayMask;       // Culling mask
-            
-            // Can fit 1 Triangle, 2 Spheres, or 10 AABB-only pointers.
-            uint8_t payload[47];   
+
+            uint8_t unused[47]; // Could possibly fit 1 Triangle, 2 Spheres, or 10 AABB-only pointers.
         } leaf;
     };
 };
@@ -75,46 +72,60 @@ struct Ray {
     float ro_x, ro_y, ro_z, rd_x, rd_y, rd_z;
 };
 
+struct HitAttributes {
+    union { float u; uint32_t attr0; };
+    union { float v; uint32_t attr1; };
+    uint32_t attr2, attr3, attr4, attr5, attr6, attr7;
+
+    uint32_t& operator[](int index) {
+        switch(index){
+            case 0: return attr0;
+            case 1: return attr1;
+            case 2: return attr2;
+            case 3: return attr3;
+            case 4: return attr4;
+            case 5: return attr5;
+            case 6: return attr6;
+            case 7: return attr7;
+            default: return attr0;
+        }
+    }
+
+    uint32_t operator[](int index) const {
+        switch(index){
+            case 0: return attr0;
+            case 1: return attr1;
+            case 2: return attr2;
+            case 3: return attr3;
+            case 4: return attr4;
+            case 5: return attr5;
+            case 6: return attr6;
+            case 7: return attr7;
+            default: return 0;
+        }
+    }
+};
+
 struct Hit {
-    float t, u, v;
+    float t;
+    HitAttributes attrs;
     uint32_t primitiveID; // 32bits
     uint32_t instanceID; // 24bits
     bool valid;
 
-    Hit()
-        : t(LARGE_FLOAT)
-        , u(0.0)
-        , v(0.0)
-        , primitiveID(0)
-        , instanceID(0)
-        , valid(false) 
-    {}
-
-    Hit(float _tmax) 
-        : t(_tmax)
-        , u(0.0)
-        , v(0.0)
-        , primitiveID(0)
-        , instanceID(0)
-        , valid(false) 
-    {}
-
-    // Hit(uint32_t _primitiveID, uint32_t _instanceID) 
-    //     , primitiveID(_primitiveID)
-    //     , instanceID(_instanceID)
-    //     , valid(true) 
-    // {}
-
+    Hit(): t(LARGE_FLOAT), primitiveID(0), instanceID(0), valid(false) {}
+    Hit(float _tmax) : t(_tmax), primitiveID(0), instanceID(0), valid(false) {}
     Hit(float _t, float _u, float _v, uint32_t _primitiveID, uint32_t _instanceID) 
         : t(_t)
-        , u(_u)
-        , v(_v)
         , primitiveID(_primitiveID)
         , instanceID(_instanceID)
         , valid(true) 
-    {}
+    {
+        this->attrs.u = _u;
+        this->attrs.v = _v;
+    }
 
-    static Hit compare(const Hit& a, const Hit& b) {
+    static Hit min(const Hit& a, const Hit& b) {
         if(!a.valid) return b;
         if(!b.valid) return a; 
         return (a.t < b.t) ? a : b; 
@@ -161,31 +172,31 @@ struct TraversalState {
 
     TraversalState()
         : trail({})
+        , status(TraversalStatus::TRACE)
         , root_ptr(0)
         , root_level(0)
         , level(0)
         , instanceID(0)
         , tmin(0)
-        , status(TraversalStatus::TRACE)
     {}
 
 
     TraversalState(Ray _ray, uint32_t _root_ptr, float _tmin, float _tmax)
         : ray(_ray)
+        , best_hit(_tmax)
         , trail({})
+        , status(TraversalStatus::TRACE)
         , root_ptr(_root_ptr)
         , root_level(0)
         , level(0)
         , instanceID(0)
         , tmin(_tmin)
-        , best_hit(_tmax)
-        , status(TraversalStatus::TRACE)
     {}
 
     ~TraversalState(){}
 
     int32_t findNextParentLevel(){
-        for(int i=level-1; i>=root_level; i--){
+        for(int32_t i = (int32_t)level - 1; i >= (int32_t)root_level; i--){
             if(trail[i] != RT_BVH_WIDTH){
                 return i;
             }
@@ -245,8 +256,7 @@ public:
     uint32_t commit(uint32_t rayID, uint32_t hitID, Hit hit, ShaderType type, per_thread_info &thread_info);
 
     std::unordered_map<uint32_t, Ray> rays_;
-    std::unordered_map<uint32_t, TraversalState> traversal_states_; // Stored in RT Core Latches/Registers
-
+    std::unordered_map<uint32_t, TraversalState> traversal_states_;
 private:
     Ray ray_transform(const Ray &ray, float *T);
     void ray_box_intersect(const Ray &ray, float min_x, float min_y, float min_z, float max_x, float max_y, float max_z, float& t_near, float& t_far);
@@ -266,8 +276,8 @@ private:
 
     uint32_t tlas_ptr, blas_ptr, bvh_ptr, tri_ptr, aabb_ptr;
 
-    const DCRS& dcrs_;
     RTUnit* rt_unit_;
+    const DCRS& dcrs_;
 };
 
 }

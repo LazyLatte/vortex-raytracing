@@ -65,9 +65,10 @@ void _start(kernel_arg_t *arg){
     float v = w2;
     float t = (fabs(a) < EPSILON || w1 < 0 || w1 > 1 || w2 < 0 || w1 + w2 > 1 || tf <= EPSILON) ?  tmax : tf;
     
-
     if (t > tmin && t < tmax) {
-        vortex::rt::set_attr<VX_RT_HIT_ATTRIBUTES>(t, u, v);
+        vortex::rt::set_attr<VX_RT_HIT_T>(t);
+        vortex::rt::set_attr<VX_RT_HIT_ATTR_0>(u);
+        vortex::rt::set_attr<VX_RT_HIT_ATTR_1>(v);
         vortex::rt::commit<VX_RT_INTERSECTION_ACCEPT>();
     }else{
         vortex::rt::commit<VX_RT_INTERSECTION_IGNORE>();

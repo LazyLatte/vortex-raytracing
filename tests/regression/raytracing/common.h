@@ -16,6 +16,7 @@
 #define INVALID_IDX 0xFFFFFFFF
 
 #define BVH_WIDTH 6
+#define MAX_LEAF_PRIMITIVES 4
 
 struct material_info_t {
   float3_t ambient;
@@ -78,7 +79,7 @@ struct bvh_quantized_node_t {
         #define OPAQUE 0
         #define NON_OPAQUE 1
           uint8_t flags;
-          uint8_t payload[47];   
+          uint8_t unused[47];   
       } leaf;
   };
 };

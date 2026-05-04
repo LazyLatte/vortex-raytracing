@@ -138,6 +138,7 @@ public:
                         shader_states_.at(wid).at(tid).tmin = rt_core_->traversal_states_[rayID].tmin;
                         shader_states_.at(wid).at(tid).tmax = rt_core_->traversal_states_[rayID].best_hit.t;
                         shader_states_.at(wid).at(tid).hit = rt_core_->traversal_states_[rayID].prim_hit[hitID];
+                        shader_states_.at(wid).at(tid).payload_addr = payload_addrs_[rayID];
                         break;
                     }
 
@@ -183,8 +184,14 @@ public:
             case VX_RT_T_MAX: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.tmax); break;
             
             case VX_RT_HIT_T: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.hit.t); break;
-            case VX_RT_HIT_U: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.hit.u); break;
-            case VX_RT_HIT_V: rd_data[tid].u32 = *reinterpret_cast<uint32_t*>(&state.hit.v); break;
+            case VX_RT_HIT_ATTR_0: rd_data[tid].u32 = state.hit.attrs[0]; break;
+            case VX_RT_HIT_ATTR_1: rd_data[tid].u32 = state.hit.attrs[1]; break;
+            case VX_RT_HIT_ATTR_2: rd_data[tid].u32 = state.hit.attrs[2]; break;
+            case VX_RT_HIT_ATTR_3: rd_data[tid].u32 = state.hit.attrs[3]; break;
+            case VX_RT_HIT_ATTR_4: rd_data[tid].u32 = state.hit.attrs[4]; break;
+            case VX_RT_HIT_ATTR_5: rd_data[tid].u32 = state.hit.attrs[5]; break;
+            case VX_RT_HIT_ATTR_6: rd_data[tid].u32 = state.hit.attrs[6]; break;
+            case VX_RT_HIT_ATTR_7: rd_data[tid].u32 = state.hit.attrs[7]; break;
             case VX_RT_HIT_INSTANCE_ID: rd_data[tid].u32 = state.hit.instanceID; break;
             case VX_RT_HIT_PRIMITIVE_ID: rd_data[tid].u32 = state.hit.primitiveID; break;
 
@@ -220,11 +227,15 @@ public:
                 state.tmax = f2;
                 state.payload_addr = u3;
                 break;
-            case VX_RT_HIT_ATTRIBUTES:
-                state.hit.t = f1;
-                state.hit.u = f2;
-                state.hit.v=  f3;
-                break;
+            case VX_RT_HIT_ATTR_0: state.hit.attrs[0] = u1; break;
+            case VX_RT_HIT_ATTR_1: state.hit.attrs[1] = u1; break;
+            case VX_RT_HIT_ATTR_2: state.hit.attrs[2] = u1; break;
+            case VX_RT_HIT_ATTR_3: state.hit.attrs[3] = u1; break;
+            case VX_RT_HIT_ATTR_4: state.hit.attrs[4] = u1; break;
+            case VX_RT_HIT_ATTR_5: state.hit.attrs[5] = u1; break;
+            case VX_RT_HIT_ATTR_6: state.hit.attrs[6] = u1; break;
+            case VX_RT_HIT_ATTR_7: state.hit.attrs[7] = u1; break;
+            case VX_RT_HIT_T: state.hit.t = f1; break; // experimental
             default: break;
         }
     }
@@ -288,9 +299,9 @@ RTUnit::RTUnit(const SimContext &ctx, const char* name, const Arch &arch, const 
     : SimObject<RTUnit>(ctx, name)
     , Inputs(ISSUE_WIDTH, this)
 	, Outputs(ISSUE_WIDTH, this)
-	, impl_(new Impl(this, arch, dcrs, core))
     , rtu_mem_req(NUM_RTU_BLOCKS, this)
     , rtu_mem_rsp(NUM_RTU_BLOCKS, this)
+    , impl_(new Impl(this, arch, dcrs, core))
 {}
 
 RTUnit::~RTUnit() {
