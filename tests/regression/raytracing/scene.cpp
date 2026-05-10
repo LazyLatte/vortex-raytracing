@@ -37,7 +37,7 @@ int Scene::init() {
   triIdx_buf_.resize(num_tris);
   centroids_.resize(num_tris);
   bvh_nodes_.resize(num_tris * 2);
-  bvh_quantized_nodes_.resize(num_tris * 2);
+  cwbvh_nodes_.resize(num_tris * 2);
   blas_nodes_.resize(meshes_.size());
 
   aabb_buf_.resize(num_tris);
@@ -96,17 +96,9 @@ int Scene::init() {
     blas_node.invTransform = mat4_t::Identity();
     // create BVH
 
-    auto bvh = new BVH(
-      tri_buf_.data(), 
-      centroids_.data(), 
-      mesh->tri().size(), 
-      bvh_nodes_.data() + bvh_offset, 
-      bvh_quantized_nodes_.data() + bvh_offset, 
-      triIdx_buf_.data() + tri_offset, 
-      triEx_buf_.data(), 
-      aabb_buf_.data(),
-      tri_offset
-    );
+    auto bvh = new BVH(tri_buf_.data(), centroids_.data(), mesh->tri().size(), bvh_nodes_.data() + bvh_offset, triIdx_buf_.data() + tri_offset);
+
+    this->compressNodes(tri_offset);
 
     // update offsets
     bvh_offset += bvh->nodeCount();
@@ -115,144 +107,79 @@ int Scene::init() {
     bvh_list_[i] = bvh;
   }
 
+  this->linearizeData();
+  
   // create TLAS
   tlas_ = new TLAS(bvh_list_, blas_nodes_.data());
   
-  // position meshes around Y axis
-  this->arrangeMeshesAroundY(0.0f);
-
   return 0;
 }
 
-float Scene::computeFramingVfov(const float3_t &camera_pos,
-                                const float3_t &camera_target,
-                                const float3_t &camera_up,
-                                float aspect_ratio) const {
-  // Compute camera basis vectors
-  float3_t forward = normalize(camera_target - camera_pos);
-  float3_t right = normalize(cross(forward, camera_up));
-  float3_t up = normalize(cross(right, forward));
+void Scene::compressNodes(uint32_t tri_offset){
+  for(int i=0; i<bvh_nodes_.size(); i++){
+    const bvh_node_t& node = bvh_nodes_[i];
+    cwbvh_node_t& cwNode = cwbvh_nodes_[i];
 
-  float max_half_angle_y = 0.0f;
-  float max_half_angle_x = 0.0f;
+    cwNode.leftFirst = node.leftFirst; 
 
-  for (auto &node : tlas_->nodes()) {
-    float3_t corners[8] = {
-        float3_t(node.aabbMin.x, node.aabbMin.y, node.aabbMin.z),
-        float3_t(node.aabbMax.x, node.aabbMin.y, node.aabbMin.z),
-        float3_t(node.aabbMin.x, node.aabbMax.y, node.aabbMin.z),
-        float3_t(node.aabbMin.x, node.aabbMin.y, node.aabbMax.z),
-        float3_t(node.aabbMax.x, node.aabbMax.y, node.aabbMin.z),
-        float3_t(node.aabbMax.x, node.aabbMin.y, node.aabbMax.z),
-        float3_t(node.aabbMin.x, node.aabbMax.y, node.aabbMax.z),
-        float3_t(node.aabbMax.x, node.aabbMax.y, node.aabbMax.z)};
+    if(!node.isLeaf()){
+      cwNode.type = BVH_INTERNAL;
+      cwNode.internal.origin = node.aabbMin;
 
-    for (const auto &corner : corners) {
-      float3_t dir = corner - camera_pos;
-      float dist_along_forward = dot(dir, forward) * 2;
+      cwNode.ex = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.x - node.aabbMin.x) / 255.0f)));
+      cwNode.ey = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.y - node.aabbMin.y) / 255.0f)));
+      cwNode.ez = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.z - node.aabbMin.z) / 255.0f)));
 
-      // Skip points behind or exactly at the camera plane
-      if (dist_along_forward <= 0.0f)
-        continue;
+      for(int k=0; k<BVH_WIDTH; k++){
+        child_data_t qChild;
 
-      // Calculate projection distances
-      float dist_right = dot(dir, right);
-      float dist_up = dot(dir, up);
+        if(k < node.childCount){
+          const bvh_node_t& childNode = bvh_nodes_[node.leftFirst + k];
 
-      // Calculate angles
-      float half_angle_x = atan2(dist_right, dist_along_forward);
-      float half_angle_y = atan2(dist_up, dist_along_forward);
+          qChild.meta = 1; //Do we need meta info, or just a single valid bit?
 
-       // Update maxima
-      max_half_angle_y = std::max(max_half_angle_y, std::abs(half_angle_y));
-      max_half_angle_x = std::max(max_half_angle_x, std::abs(half_angle_x));
+          qChild.qaabb[0] = static_cast<uint8_t>(std::floor((childNode.aabbMin.x - cwNode.internal.origin.x) / std::exp2f(static_cast<float>(cwNode.ex))));
+          qChild.qaabb[1] = static_cast<uint8_t>(std::floor((childNode.aabbMin.y - cwNode.internal.origin.y) / std::exp2f(static_cast<float>(cwNode.ey))));
+          qChild.qaabb[2] = static_cast<uint8_t>(std::floor((childNode.aabbMin.z - cwNode.internal.origin.z) / std::exp2f(static_cast<float>(cwNode.ez))));
+
+          qChild.qaabb[3] = static_cast<uint8_t>(std::ceil((childNode.aabbMax.x - cwNode.internal.origin.x) / std::exp2f(static_cast<float>(cwNode.ex))));
+          qChild.qaabb[4] = static_cast<uint8_t>(std::ceil((childNode.aabbMax.y - cwNode.internal.origin.y) / std::exp2f(static_cast<float>(cwNode.ey))));
+          qChild.qaabb[5] = static_cast<uint8_t>(std::ceil((childNode.aabbMax.z - cwNode.internal.origin.z) / std::exp2f(static_cast<float>(cwNode.ez))));
+
+        }else{
+          qChild.meta = 0;
+        }
+        cwNode.internal.children[k] = qChild;
+      }
+    }else{
+      cwNode.type = TRIANGLE_LEAF;
+      //cwNode.type = PROCEDURAL_LEAF;
+      cwNode.leaf.flags = OPAQUE;
+      //cwNode.leaf.flags = NON_OPAQUE;
+      cwNode.leaf.primCount = node.triCount;
+      cwNode.leftFirst += tri_offset;
     }
   }
-
-  // Calculate required FOVs
-  const float required_vfov = 2.0f * max_half_angle_y;
-  const float required_hfov = 2.0f * max_half_angle_x;
-  const float hfov_based_vfov = required_hfov / aspect_ratio;
-
-  // Return the larger FOV that covers all cases
-  return std::max(required_vfov, hfov_based_vfov);
 }
 
-void Scene::computeFramingCamera(float vfov,
-                                 float zoon,
-                                 float3_t *camera_pos,
-                                 float3_t *camera_target,
-                                 float3_t *camera_up) {
-  // 1) Compute scene AABB
-  float3_t bmin = { +LARGE_FLOAT, +LARGE_FLOAT, +LARGE_FLOAT };
-  float3_t bmax = { -LARGE_FLOAT, -LARGE_FLOAT, -LARGE_FLOAT };
-  for (auto &node : tlas_->nodes()) {
-    bmin.x = std::min(bmin.x, node.aabbMin.x);
-    bmin.y = std::min(bmin.y, node.aabbMin.y);
-    bmin.z = std::min(bmin.z, node.aabbMin.z);
-    bmax.x = std::max(bmax.x, node.aabbMax.x);
-    bmax.y = std::max(bmax.y, node.aabbMax.y);
-    bmax.z = std::max(bmax.z, node.aabbMax.z);
+void Scene::linearizeData(){
+  const uint32_t num_tris = triIdx_buf_.size();
+  std::vector<tri_t> sortedTriData(num_tris);
+  std::vector<tri_ex_t> sortedTriEx(num_tris);
+  std::vector<float3_t> sortedCentroids(num_tris);
+
+  for (uint32_t i = 0; i < num_tris; i++) {
+    uint32_t triIdx = triIdx_buf_[i];
+    sortedTriData[i] = tri_buf_[triIdx];
+    sortedTriEx[i] = triEx_buf_[triIdx];
+    sortedCentroids[i] = centroids_[triIdx];
+
+    aabb_buf_[i] = AABB(tri_buf_[triIdx]);
   }
 
-  // 2) Get bounding sphere (center + radius)
-  float3_t center = (bmin + bmax) * 0.5f;
-  float radius = length(bmax - center);
-
-  // 3) Set target and up
-  *camera_target = center;
-  *camera_up = float3_t{0.0f, 1.0f, 0.0f};
-
-  // 4) Compute how far back to position the camera
-  float distance = radius / std::tan(vfov);
-
-  // 5) Apply zoom factor (<1 = closer, >1 = farther)
-  distance *= zoon;
-
-  // 6) Dolly along -Z so that the scene is framed
-  //    (we assume "forward" = +Z in object space, so camera sits at -Z)
-  *camera_pos = center - float3_t{0.0f, 0.0f, 1.0f} * distance;
-}
-
-void Scene::arrangeMeshesAroundY(float margin) {
-  if (meshes_.size() == 1)
-    return;
-
-  uint32_t N = meshes_.size();
-
-  // 1. Calculate bounding sizes
-  std::vector<float> radii(meshes_.size());
-  for (size_t i = 0; i < N; i++) {
-    auto bvh = bvh_list_[i];
-    auto &bmin = bvh->aabbMin();
-    auto &bmax = bvh->aabbMax();
-    float dx = bmax.x - bmin.x;
-    float dz = bmax.z - bmin.z;
-    float radius = 0.5f * std::sqrt(dx*dx + dz*dz);
-    radii[i] = radius + margin;
-  }
-
-  // 2. Find the maximum sum of two adjacent R's
-  float maxPairSum = 0.0f;
-  for (size_t i = 0; i < N; ++i) {
-    size_t j = (i + 1) % N;
-    maxPairSum = std::max(maxPairSum, radii[i] + radii[j]);
-  }
-
-  // 3. Compute the needed circle radius so that 2*R*sin(pi/N) >= maxPairSum
-  float angleStep = 2.0f * M_PI / float(N);
-  float sinHalfStep = std::sin(angleStep / 2.0f);
-  float arrangementR = maxPairSum / (2.0f * sinHalfStep);
-
-  // 4. Position each mesh
-  for (size_t i = 0; i < N; i++) {
-    auto &node = blas_nodes_[i];
-    float theta = angleStep * float(i);
-    float x = arrangementR * std::cos(theta);
-    float z = arrangementR * std::sin(theta);
-    auto T = mat4_t::Translate(float3_t(x, 0.0f, z));
-    node.applyTransform(T);
-  }
+  std::copy(sortedTriData.begin(), sortedTriData.end(), tri_buf_.data());
+  std::copy(sortedTriEx.begin(), sortedTriEx.end(), triEx_buf_.data());
+  std::copy(sortedCentroids.begin(), sortedCentroids.end(), centroids_.data());
 }
 
 void Scene::applyTransform(const mat4_t &transform) {

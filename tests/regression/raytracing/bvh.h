@@ -10,6 +10,19 @@ struct AABB {
   float3_t bmin = LARGE_FLOAT;
   float3_t bmax = -LARGE_FLOAT;
 
+  AABB(){}
+  AABB(const tri_t& tri){
+    bmin = LARGE_FLOAT;
+    bmax = -LARGE_FLOAT;
+
+    bmin = fminf(bmin, tri.v0);
+    bmin = fminf(bmin, tri.v1);
+    bmin = fminf(bmin, tri.v2);
+    bmax = fmaxf(bmax, tri.v0);
+    bmax = fmaxf(bmax, tri.v1);
+    bmax = fmaxf(bmax, tri.v2);
+  }
+
   void grow(float3_t p) {
     bmin = fminf(bmin, p);
     bmax = fmaxf(bmax, p);
@@ -36,17 +49,7 @@ struct Split{
 // bounding volume hierarchy, to be used as BLAS
 class BVH {
 public:
-  BVH(
-    tri_t *triData, 
-    float3_t *centroids, 
-    uint32_t triCount, 
-    bvh_node_t* bvh_nodes, 
-    bvh_quantized_node_t *bvh_qnodes, 
-    uint32_t *triIndices, 
-    tri_ex_t *triEx, 
-    AABB* prim_aabbs,
-    uint32_t tri_offset
-  );
+  BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t* bvh_nodes, uint32_t *triIndices);
   ~BVH();
 
   auto &aabbMin() const { return bvhNodes_[0].aabbMin; }
@@ -60,29 +63,19 @@ public:
   const uint32_t* triIndices() const { return triIndices_; }
 
 private:
-
   void build();
-  //void initializeNode(bvh_node_t &node, uint32_t first, uint32_t count);
   void subdivide(bvh_node_t &node);
   void updateNodeBounds(bvh_node_t &node) const;
-  AABB calcTriBounds(const tri_t &tri) const;
   uint32_t partitionTriangles(const bvh_node_t &node, const Split &split) const;
   Split findBestSplitPlane(const bvh_node_t &node) const;
-  void linearizeData();
-  void quantize();
 
   uint32_t triCount_ = 0;        // number of triangles
   tri_t *triData_ = nullptr; // pointer to mesh vertices
-  tri_ex_t *triEx_ = nullptr;
   float3_t *centroids_ = nullptr; // triangle centroids
   uint32_t *triIndices_ = nullptr; // triangle indices
   bvh_node_t *bvhNodes_ = nullptr;
-  bvh_quantized_node_t *bvhQNodes_ = nullptr;
   
   uint32_t nodeCount_ = 0;
-  uint32_t tri_offset_ = 0;
-
-  AABB* prim_aabbs_;
 };
 
 // top-level BVH class
@@ -123,7 +116,7 @@ private:
 
   std::vector<tlas_node_t> tlasLeaves_;
   std::vector<tlas_node_t> tlasNodes_;
-  std::vector<bvh_quantized_node_t> tlasQNodes_;
+  std::vector<cwbvh_node_t> tlasQNodes_;
   //std::vector<uint32_t> nodeIndices_;
   //std::vector<uint32_t> triCounts_;
   uint32_t blasCount_ = 0;

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common.h"
-#include "scene.h"
+#include "scene_list.h"
 #include <vortex.h>
 
 class Tracer {
@@ -9,9 +9,9 @@ public:
   Tracer(uint32_t dst_width, uint32_t dst_height, uint32_t samples_per_pixel, uint32_t max_depth);
   ~Tracer();
 
-  int init(const char *kernel_file, const char* model_file, uint32_t mesh_count);
+  int init(const char *kernel_file, uint32_t scene_id);
 
-  int setup(float camera_vfov, float zoom, float3_t light_pos, float3_t light_color, float3_t ambient_color, float3_t background_color);
+  int setup();
 
   int run(const char *output_file);
 
@@ -33,13 +33,12 @@ private:
   vx_buffer_h texBuffer_ = nullptr;     // store texture data
   vx_buffer_h tlasBuffer_ = nullptr;    // store TLAS nodes
   vx_buffer_h blasBuffer_ = nullptr;    // store BLAS nodes
-  //vx_buffer_h bvhBuffer_ = nullptr;     // store BVH nodes
-  vx_buffer_h qBvhBuffer_ = nullptr;    // store Quantized BVH nodes
+  vx_buffer_h bvhBuffer_ = nullptr;     // store CW-BVH nodes
   vx_buffer_h aabbBuffer_ = nullptr;    // store AABBs of Procedural Primitives
 
   vx_buffer_h sbtBuffer_ = nullptr;
-  vx_buffer_h miss_shader_buffer_ = nullptr;
-  vx_buffer_h closest_hit_shader_buffer_ = nullptr;
-  vx_buffer_h intersection_shader_buffer_ = nullptr;
-  vx_buffer_h any_hit_shader_buffer_ = nullptr;
+  vx_buffer_h rMiss_buffer_ = nullptr;
+  vx_buffer_h rchit_buffer_ = nullptr;
+  vx_buffer_h rint_buffer_ = nullptr;
+  vx_buffer_h rahit_buffer_ = nullptr;
 };

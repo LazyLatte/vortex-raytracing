@@ -16,7 +16,7 @@
 #define INVALID_IDX 0xFFFFFFFF
 
 #define BVH_WIDTH 6
-#define MAX_LEAF_PRIMITIVES 4
+#define MAX_LEAF_PRIMITIVES 1
 
 struct material_info_t {
   float3_t ambient;
@@ -48,8 +48,8 @@ struct child_data_t {
   uint8_t qaabb[6];
 };
 
-// BVH quantized node struct
-struct bvh_quantized_node_t {
+// Compressed wide BVH node struct
+struct cwbvh_node_t {
   uint32_t leftFirst;
 
 #define BVH_INTERNAL    0
@@ -186,23 +186,19 @@ typedef struct {
   uint64_t dst_addr;
 
   uint64_t aabb_addr;
-  
 	uint64_t tri_addr;
 	uint64_t triEx_addr;
 	uint64_t triIdx_addr;
   uint64_t mat_addr;
   uint64_t tex_addr;
 	uint64_t bvh_addr;
-  uint64_t qBvh_addr;
 	uint64_t blas_addr;
   uint64_t tlas_addr;
   uint32_t tlas_root;
 
   float3_t camera_pos;
-	float3_t camera_forward;
-  float3_t camera_right;
-  float3_t camera_up;
-  float2_t viewplane;
+	float3_t camera_front;
+  float camera_fov;
 
   uint32_t samples_per_pixel;
   uint32_t max_depth;

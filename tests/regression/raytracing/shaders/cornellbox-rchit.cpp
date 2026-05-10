@@ -29,7 +29,9 @@ void _start(kernel_arg_t *arg){
   float3_t I = payload->origin + payload->direction * t;
 
   // interpolated, transformed normal
-  float3_t N = triEx.N1 * bx + triEx.N2 * by + triEx.N0 * bz;
+  auto tri_ptr = reinterpret_cast<const tri_t *>(arg->tri_addr);
+  const tri_t& tri = tri_ptr[primitiveID];
+  float3_t N = calcNormal(tri);
   mat4_t invTranspose = blas.invTransform.transposed();
   N = normalize(TransformVector(N, invTranspose));
 
@@ -48,26 +50,18 @@ void _start(kernel_arg_t *arg){
     albedo = mat.diffuse;
   }
 
-  float3_t ambient = albedo * arg->ambient_color;
-  payload->irradiance += payload->throughput * ambient;
+  float3_t lightPos = float3_t(-0.235, 1.88, 0.19); 
+  float3_t L = normalize(lightPos - I);
 
-  // Handle Emission (Light Sources)
-  if(length(mat.emissive) > 0.0f){
-      payload->irradiance += payload->throughput * mat.emissive;
-      payload->stop = true;
-  } else {
-      // Prepare Reflection (Only if not a light)
-      payload->throughput *= albedo;
-      payload->origin = I + N * 0.001f;
-      payload->direction = reflect(payload->direction, N);
-      payload->bounce++;
+  float dotNL = dot(N, L);
+  float diffuse = std::max(dotNL, 0.0f);
 
-      if (payload->bounce >= arg->max_depth) {
-          payload->stop = true;
-      }
-  }
+  float shadow = 1.0f;
+  float ambientStrength = 0.2f;
+  float3_t lighting = albedo * (diffuse * shadow + ambientStrength);
 
+  payload->irradiance = lighting;
+  payload->stop = true; 
   payload->done = true;
 }
-
 }

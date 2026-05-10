@@ -22,11 +22,7 @@ ray_t GenerateRay(uint32_t x, uint32_t y, uint32_t sample_idx, const kernel_arg_
 
     float jitter_x = fast_rand(seed) - 0.5f;
     float jitter_y = fast_rand(seed) - 0.5f;
-
-    auto pos = float3_t(0.0, 0.0, 0.0);
-    auto front = float3_t(1.0, 0.0, 0.0);
-    float FOV = 1.0;
-
+    
     // Apply jitter to the screen-space coordinates
     float u = ((float)x + jitter_x) * 2.0f - (float)arg->dst_width;
     u /= (float)arg->dst_height;
@@ -34,11 +30,14 @@ ray_t GenerateRay(uint32_t x, uint32_t y, uint32_t sample_idx, const kernel_arg_
     float v = ((float)y + jitter_y) * 2.0f - (float)arg->dst_height;
     v /= (float)arg->dst_height;
 
-    auto right = cross(front, float3_t(0.0, 1.0, 0.0));
-    auto up = cross(right, front);
-    auto dir = normalize(u * right + v * up + FOV * front);
+    auto FOV = arg->camera_fov;
+    auto camera_pos = arg->camera_pos;
+    auto camera_front = arg->camera_front;
+    auto camera_right = cross(camera_front, float3_t(0.0, 1.0, 0.0));
+    auto camera_up = cross(camera_right, camera_front);
+    auto camera_dir = normalize(u * camera_right + v * camera_up + FOV * camera_front);
 
-    return ray_t{pos, dir};
+    return ray_t{camera_pos, camera_dir};
 }
 
 void kernel_body(kernel_arg_t *__UNIFORM__ arg) {

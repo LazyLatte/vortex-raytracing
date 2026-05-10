@@ -24,23 +24,6 @@ static void write_ppm(const uint8_t* output, uint32_t width, uint32_t height, co
   std::cout << "Image saved to: " << output_file << std::endl;
 }
 
-static std::string resolve_path(const std::string& filename, const std::string& searchPaths) {
-  std::ifstream ifs(filename);
-  if (!ifs) {
-    std::stringstream ss(searchPaths);
-    std::string path;
-    while (std::getline(ss, path, ',')) {
-      if (!path.empty()) {
-        std::string filePath = path + "/" + filename;
-        std::ifstream ifs(filePath);
-        if (ifs)
-          return filePath;
-      }
-    }
-  }
-  return filename;
-}
-
 Tracer::Tracer(
   uint32_t dst_width,
   uint32_t dst_height,
@@ -69,28 +52,25 @@ Tracer::~Tracer() {
   vx_mem_free(texBuffer_);
   vx_mem_free(tlasBuffer_);
   vx_mem_free(blasBuffer_);
-  //vx_mem_free(bvhBuffer_);
-  vx_mem_free(qBvhBuffer_);
+  vx_mem_free(bvhBuffer_);
 
   vx_mem_free(sbtBuffer_);
-  vx_mem_free(miss_shader_buffer_);
-  vx_mem_free(closest_hit_shader_buffer_);
-  vx_mem_free(intersection_shader_buffer_);
-  vx_mem_free(any_hit_shader_buffer_);
+  vx_mem_free(rMiss_buffer_);
+  vx_mem_free(rchit_buffer_);
+  vx_mem_free(rint_buffer_);
+  vx_mem_free(rahit_buffer_);
   // close device
   vx_dev_close(device_);
 }
 
-int Tracer::init(const char *kernel_file, const char* model_file, uint32_t mesh_count) {
-  // create meshes
-  std::vector<Mesh*> meshes(mesh_count);
-  for (uint32_t i = 0; i < meshes.size(); ++i) {
-    auto s_model = resolve_path(std::string("assets/") + model_file, ASSETS_PATHS);
-    meshes[i] = new Mesh(s_model.c_str());
-  }
-
+int Tracer::init(const char *kernel_file, uint32_t scene_id) {
   // create scene
-  scene_ = new Scene(meshes);
+  const std::pair<std::string, std::function<Scene* (void)>> target_scene =  SceneList::AllScenes[scene_id];
+
+  std::string scene_name = target_scene.first;
+  std::function<Scene* (void)> CreateScene =  target_scene.second;
+  
+  scene_ = CreateScene();
   RT_CHECK(scene_->init());
 
   RT_CHECK(vx_dev_open(&device_));
@@ -98,10 +78,10 @@ int Tracer::init(const char *kernel_file, const char* model_file, uint32_t mesh_
   // upload kernel
   // vx_mem_address(krnl_buffer_) get base address
   RT_CHECK(vx_upload_kernel_file(device_, kernel_file, &krnl_buffer_));
-  RT_CHECK(vx_upload_kernel_file(device_, "miss.vxbin", &miss_shader_buffer_));
-  RT_CHECK(vx_upload_kernel_file(device_, "closest.vxbin", &closest_hit_shader_buffer_));
-  RT_CHECK(vx_upload_kernel_file(device_, "intersection.vxbin", &intersection_shader_buffer_));
-  RT_CHECK(vx_upload_kernel_file(device_, "anyhit.vxbin", &any_hit_shader_buffer_));
+  RT_CHECK(vx_upload_kernel_file(device_, (scene_name + "-rMiss.vxbin").c_str(), &rMiss_buffer_));
+  RT_CHECK(vx_upload_kernel_file(device_, (scene_name + "-rchit.vxbin").c_str(), &rchit_buffer_));
+  RT_CHECK(vx_upload_kernel_file(device_, (scene_name + "-rint.vxbin").c_str(), &rint_buffer_));
+  RT_CHECK(vx_upload_kernel_file(device_, (scene_name + "-rahit.vxbin").c_str(), &rahit_buffer_));
 
   // allocate tri buffer
   RT_CHECK(vx_mem_alloc(device_, scene_->tri_buf().size() * sizeof(tri_t), VX_MEM_READ, &triBuffer_));
@@ -112,7 +92,7 @@ int Tracer::init(const char *kernel_file, const char* model_file, uint32_t mesh_
   RT_CHECK(vx_mem_address(triExBuffer_, &kernel_arg_.triEx_addr));
 
   // allocate tlas buffer
-  RT_CHECK(vx_mem_alloc(device_, scene_->tlas_qnodes().size() * sizeof(bvh_quantized_node_t), VX_MEM_READ, &tlasBuffer_));
+  RT_CHECK(vx_mem_alloc(device_, scene_->tlas_qnodes().size() * sizeof(cwbvh_node_t), VX_MEM_READ, &tlasBuffer_));
   RT_CHECK(vx_mem_address(tlasBuffer_, &kernel_arg_.tlas_addr));
 
   // allocate inst buffer
@@ -120,20 +100,26 @@ int Tracer::init(const char *kernel_file, const char* model_file, uint32_t mesh_
   RT_CHECK(vx_mem_address(blasBuffer_, &kernel_arg_.blas_addr));
 
   // allocate bvh buffer
-  // RT_CHECK(vx_mem_alloc(device_, scene_->bvh_nodes().size() * sizeof(bvh_node_t), VX_MEM_READ, &bvhBuffer_));
-  // RT_CHECK(vx_mem_address(bvhBuffer_, &kernel_arg_.bvh_addr));
+  RT_CHECK(vx_mem_alloc(device_, scene_->cwbvh_nodes().size() * sizeof(cwbvh_node_t), VX_MEM_READ, &bvhBuffer_));
+  RT_CHECK(vx_mem_address(bvhBuffer_, &kernel_arg_.bvh_addr));
 
-  // allocate Quantized bvh buffer
-  RT_CHECK(vx_mem_alloc(device_, scene_->bvh_quantized_nodes().size() * sizeof(bvh_quantized_node_t), VX_MEM_READ, &qBvhBuffer_));
-  RT_CHECK(vx_mem_address(qBvhBuffer_, &kernel_arg_.qBvh_addr));
-
+  // allocate AABB buffer
+  if(scene_->aabb_buf().size() > 0){
+    RT_CHECK(vx_mem_alloc(device_, scene_->aabb_buf().size() * sizeof(AABB), VX_MEM_READ, &aabbBuffer_));
+    RT_CHECK(vx_mem_address(aabbBuffer_, &kernel_arg_.aabb_addr));
+  }
+  
   // allocate mat buffer
-  RT_CHECK(vx_mem_alloc(device_, scene_->mat_buf().size() * sizeof(material_info_t), VX_MEM_READ, &matBuffer_));
-  RT_CHECK(vx_mem_address(matBuffer_, &kernel_arg_.mat_addr));
+  if(scene_->mat_buf().size() > 0){
+    RT_CHECK(vx_mem_alloc(device_, scene_->mat_buf().size() * sizeof(material_info_t), VX_MEM_READ, &matBuffer_));
+    RT_CHECK(vx_mem_address(matBuffer_, &kernel_arg_.mat_addr));
+  }
 
   // allocate tex buffer
-  RT_CHECK(vx_mem_alloc(device_, scene_->tex_buf().size(), VX_MEM_READ, &texBuffer_));
-  RT_CHECK(vx_mem_address(texBuffer_, &kernel_arg_.tex_addr));
+  if(scene_->tex_buf().size() > 0){
+    RT_CHECK(vx_mem_alloc(device_, scene_->tex_buf().size(), VX_MEM_READ, &texBuffer_));
+    RT_CHECK(vx_mem_address(texBuffer_, &kernel_arg_.tex_addr));
+  }
 
   // allocate output buffer
   RT_CHECK(vx_mem_alloc(device_, dst_width_ * dst_height_ * sizeof(uint32_t), VX_MEM_WRITE, &output_buffer_));
@@ -142,15 +128,11 @@ int Tracer::init(const char *kernel_file, const char* model_file, uint32_t mesh_
   // allocate sbt
   RT_CHECK(vx_mem_alloc(device_, sizeof(uint64_t) * 4, VX_MEM_READ, &sbtBuffer_));
   RT_CHECK(vx_mem_address(sbtBuffer_, &kernel_arg_.sbt_addr));
-  
-  // allocate AABB buffer
-  RT_CHECK(vx_mem_alloc(device_, scene_->aabb_buf().size() * sizeof(AABB), VX_MEM_READ, &aabbBuffer_));
-  RT_CHECK(vx_mem_address(aabbBuffer_, &kernel_arg_.aabb_addr));
 
   return 0;
 }
 
-int Tracer::setup(float camera_vfov, float zoom, float3_t light_pos, float3_t light_color, float3_t ambient_color, float3_t background_color) {
+int Tracer::setup() {
 
   // transform BVH instances
   // {
@@ -165,31 +147,17 @@ int Tracer::setup(float camera_vfov, float zoom, float3_t light_pos, float3_t li
 
   // setup Camera
   {
-    float3_t camera_pos, camera_target, camera_up;
-    scene_->computeFramingCamera(camera_vfov * DEG2RAD, zoom, &camera_pos, &camera_target, &camera_up);
-    float3_t forward = normalize(camera_target - camera_pos);
-    float3_t right = normalize(cross(forward, camera_up));
-    float3_t up = cross(right, forward);
-    kernel_arg_.camera_pos = camera_pos;
-    kernel_arg_.camera_forward = forward;
-    kernel_arg_.camera_right = right;
-    kernel_arg_.camera_up = up;
-  }
-
-  // setup viewplane
-  {
-    float aspect_ratio = float(dst_width_) / dst_height_;
-    float viewport_height = 2.0f * tan(camera_vfov * 0.5f);
-    float viewport_width = viewport_height * aspect_ratio;
-    kernel_arg_.viewplane = {viewport_width, viewport_height};
+    kernel_arg_.camera_pos = scene_->camera_pos;
+    kernel_arg_.camera_front = scene_->camera_front;
+    kernel_arg_.camera_fov = scene_->camera_fov;
   }
 
   // setup lighting
   {
-    kernel_arg_.light_pos = light_pos;
-    kernel_arg_.light_color = light_color;
-    kernel_arg_.ambient_color = ambient_color;
-    kernel_arg_.background_color = background_color;
+    kernel_arg_.light_pos = scene_->light_pos;
+    kernel_arg_.light_color = scene_->light_color;
+    kernel_arg_.ambient_color = scene_->ambient_color;
+    kernel_arg_.background_color = scene_->background_color;
   }
 
   // upload tri data
@@ -199,38 +167,39 @@ int Tracer::setup(float camera_vfov, float zoom, float3_t light_pos, float3_t li
   RT_CHECK(vx_copy_to_dev(triExBuffer_, scene_->triEx_buf().data(), 0, scene_->triEx_buf().size() * sizeof(tri_ex_t)));
 
   // upload tlas data
-  RT_CHECK(vx_copy_to_dev(tlasBuffer_, scene_->tlas_qnodes().data(), 0, scene_->tlas_qnodes().size() * sizeof(bvh_quantized_node_t)));
+  RT_CHECK(vx_copy_to_dev(tlasBuffer_, scene_->tlas_qnodes().data(), 0, scene_->tlas_qnodes().size() * sizeof(cwbvh_node_t)));
 
   // upload inst data
   RT_CHECK(vx_copy_to_dev(blasBuffer_, scene_->blas_nodes().data(), 0, scene_->blas_nodes().size() * sizeof(blas_node_t)));
 
   // upload bvh data
-  //RT_CHECK(vx_copy_to_dev(bvhBuffer_, scene_->bvh_nodes().data(), 0, scene_->bvh_nodes().size() * sizeof(bvh_node_t)));
+  RT_CHECK(vx_copy_to_dev(bvhBuffer_, scene_->cwbvh_nodes().data(), 0, scene_->cwbvh_nodes().size() * sizeof(cwbvh_node_t)));
 
-  // upload Quantized bvh data
-  RT_CHECK(vx_copy_to_dev(qBvhBuffer_, scene_->bvh_quantized_nodes().data(), 0, scene_->bvh_quantized_nodes().size() * sizeof(bvh_quantized_node_t)));
+  // upload AABB data
+  if(scene_->aabb_buf().size() > 0)
+    RT_CHECK(vx_copy_to_dev(aabbBuffer_, scene_->aabb_buf().data(), 0, scene_->aabb_buf().size() * sizeof(AABB)));
 
   // upload mat data
-  RT_CHECK(vx_copy_to_dev(matBuffer_, scene_->mat_buf().data(), 0, scene_->mat_buf().size() * sizeof(material_info_t)));
+  if(scene_->mat_buf().size() > 0)
+    RT_CHECK(vx_copy_to_dev(matBuffer_, scene_->mat_buf().data(), 0, scene_->mat_buf().size() * sizeof(material_info_t)));
 
   // upload tex data
-  RT_CHECK(vx_copy_to_dev(texBuffer_, scene_->tex_buf().data(), 0, scene_->tex_buf().size()));
+  if(scene_->tex_buf().size() > 0)
+    RT_CHECK(vx_copy_to_dev(texBuffer_, scene_->tex_buf().data(), 0, scene_->tex_buf().size()));
 
   // upload sbt
   uint64_t tmp_sbt[4];
-  RT_CHECK(vx_mem_address(miss_shader_buffer_, &tmp_sbt[0]));
-  RT_CHECK(vx_mem_address(closest_hit_shader_buffer_, &tmp_sbt[1]));
-  RT_CHECK(vx_mem_address(intersection_shader_buffer_, &tmp_sbt[2]));
-  RT_CHECK(vx_mem_address(any_hit_shader_buffer_, &tmp_sbt[3]));
+  RT_CHECK(vx_mem_address(rMiss_buffer_, &tmp_sbt[0]));
+  RT_CHECK(vx_mem_address(rchit_buffer_, &tmp_sbt[1]));
+  if(rint_buffer_)
+    RT_CHECK(vx_mem_address(rint_buffer_, &tmp_sbt[2]));
+  if(rahit_buffer_)
+    RT_CHECK(vx_mem_address(rahit_buffer_, &tmp_sbt[3]));
   RT_CHECK(vx_copy_to_dev(sbtBuffer_, tmp_sbt, 0, sizeof(uint64_t) * 4));
-
-  // upload AABB data
-  RT_CHECK(vx_copy_to_dev(aabbBuffer_, scene_->aabb_buf().data(), 0, scene_->aabb_buf().size() * sizeof(AABB)));
-
 
   RT_CHECK(vx_dcr_write(device_, 0x00000006, (uint32_t)(kernel_arg_.tlas_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x00000007, (uint32_t)(kernel_arg_.blas_addr)));
-  RT_CHECK(vx_dcr_write(device_, 0x00000008, (uint32_t)(kernel_arg_.qBvh_addr)));
+  RT_CHECK(vx_dcr_write(device_, 0x00000008, (uint32_t)(kernel_arg_.bvh_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x00000009, (uint32_t)(kernel_arg_.tri_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x0000000A, (uint32_t)(kernel_arg_.aabb_addr)));
 

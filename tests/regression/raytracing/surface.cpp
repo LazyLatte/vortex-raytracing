@@ -26,6 +26,7 @@ Surface::Surface(const char *file) : pixels_(0), width_(0), height_(0) {
 }
 
 void Surface::loadImage(const char *file) {
+  stbi_set_flip_vertically_on_load(true);
   if (stbi_is_hdr(file)) {
     float *data = stbi_loadf(file, (int*)&width_, (int*)&height_, nullptr, 3);
     if (data) {

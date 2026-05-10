@@ -5,10 +5,12 @@ PROJECT := raytracing
 
 SRC_DIR := $(VORTEX_HOME)/tests/regression/$(PROJECT)
 
-SRCS := $(SRC_DIR)/main.cpp $(SRC_DIR)/tracer.cpp $(SRC_DIR)/mesh.cpp $(SRC_DIR)/surface.cpp $(SRC_DIR)/bvh.cpp $(SRC_DIR)/scene.cpp $(SRC_DIR)/treelet.cpp
+SRCS := $(SRC_DIR)/main.cpp $(SRC_DIR)/tracer.cpp $(SRC_DIR)/mesh.cpp $(SRC_DIR)/surface.cpp $(SRC_DIR)/bvh.cpp $(SRC_DIR)/scene.cpp $(SRC_DIR)/scene_list.cpp $(SRC_DIR)/treelet.cpp
 
 SHADER_DIR := $(SRC_DIR)/shaders
-SHADERS := kernel miss closest intersection anyhit
+SHADERS := kernel \
+	sponza-rMiss sponza-rchit sponza-rint sponza-rahit \
+	cornellbox-rMiss cornellbox-rchit
 
 VX_BINS  := $(addsuffix .vxbin, $(SHADERS))
 VX_DUMPS := $(addsuffix .dump, $(SHADERS))
@@ -101,12 +103,13 @@ endif
 endif
 endif
 
-kernel.elf:   		STARTUP_ADDR := 0x80000000
-miss.elf:     		STARTUP_ADDR := 0x80100000
-closest.elf:  		STARTUP_ADDR := 0x80200000
-intersection.elf:   STARTUP_ADDR := 0x80300000
-anyhit.elf:   		STARTUP_ADDR := 0x80400000
-
+kernel.elf:   			STARTUP_ADDR := 0x80000000
+sponza-rMiss.elf:     	STARTUP_ADDR := 0x80100000
+sponza-rchit.elf:  		STARTUP_ADDR := 0x80200000
+sponza-rint.elf:   		STARTUP_ADDR := 0x80300000
+sponza-rahit.elf:   	STARTUP_ADDR := 0x80400000
+cornellbox-rMiss.elf: 	STARTUP_ADDR := 0x80500000
+cornellbox-rchit.elf:   STARTUP_ADDR := 0x80600000
 
 all: $(PROJECT) $(VX_BINS) $(VX_DUMPS)
 
@@ -119,7 +122,8 @@ all: $(PROJECT) $(VX_BINS) $(VX_DUMPS)
 kernel.elf: $(SRC_DIR)/kernel.cpp
 	$(VX_CXX) $(VX_CFLAGS) $< $(VX_LDFLAGS) -o $@
 
-miss.elf closest.elf intersection.elf anyhit.elf: %.elf: $(SHADER_DIR)/%.cpp
+sponza-rMiss.elf sponza-rchit.elf sponza-rint.elf \
+sponza-rahit.elf cornellbox-rMiss.elf cornellbox-rchit.elf: %.elf: $(SHADER_DIR)/%.cpp
 	$(VX_CXX) $(VX_CFLAGS) $< $(VX_LDFLAGS) -o $@
 
 $(PROJECT): $(SRCS)

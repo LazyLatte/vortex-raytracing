@@ -16,22 +16,11 @@
 
 const char *kernel_file = "kernel.vxbin";
 const char *output_file = "output.ppm";
-//const char *model_file = "teapot.obj";
-const char *model_file = "Sponza/sponza.obj";
 
-uint32_t mesh_count = 1;
+uint32_t scene_id = 1;
 
 uint32_t dst_width = 64;
 uint32_t dst_height = 64;
-
-float camera_fvf = 45;
-float camera_zoom = 1.0f;
-
-float3_t light_pos = float3_t(0, 10, -10);
-float3_t light_color = float3_t(1, 1, 1.0);
-float3_t ambient_color = float3_t(0.4f, 0.4f, 0.4f);
-
-float3_t background_color = float3_t(0.4f, 0.35f, 0.25f);
 
 uint32_t samples_per_pixel = 1;
 uint32_t max_depth = 1;
@@ -50,10 +39,10 @@ static void parse_args(int argc, char **argv) {
         kernel_file = optarg;
         break;
       case 'n':
-        mesh_count = atoi(optarg);
+        // mesh_count = atoi(optarg);
         break;
       case 'm':
-        model_file = optarg;
+        scene_id = atoi(optarg);
         break;
       case 'w':
         dst_width = atoi(optarg);
@@ -62,10 +51,10 @@ static void parse_args(int argc, char **argv) {
         dst_height = atoi(optarg);
         break;
       case 'f':
-        camera_fvf = atof(optarg);
+        // camera_fvf = atof(optarg);
         break;
       case 'z':
-        camera_zoom = atof(optarg);
+        // camera_zoom = atof(optarg);
         break;
       case 's':
         samples_per_pixel = atoi(optarg);
@@ -98,8 +87,8 @@ int main(int argc, char *argv[]) {
   parse_args(argc, argv);
 
   Tracer tracer(dst_width, dst_height, samples_per_pixel, max_depth);
-  RT_CHECK(tracer.init(kernel_file, model_file, mesh_count));
-  RT_CHECK(tracer.setup(camera_fvf, camera_zoom, light_pos, light_color, ambient_color, background_color));
+  RT_CHECK(tracer.init(kernel_file, scene_id));
+  RT_CHECK(tracer.setup());
   RT_CHECK(tracer.run(output_file));
 
   return 0;

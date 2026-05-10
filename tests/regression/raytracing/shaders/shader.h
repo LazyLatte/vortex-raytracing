@@ -48,3 +48,10 @@ float3_t diffuseLighting(const float3_t& pixel,
 }
 
 float3_t reflect(const float3_t& P, const float3_t& N){ return normalize(P - 2.0f * N * dot(N, P)); }
+
+float3_t calcNormal(const tri_t& tri){
+  float3_t edge1 = tri.v1 - tri.v0;
+  float3_t edge2 = tri.v2 - tri.v0;
+
+  return normalize(cross(edge1, edge2));
+}

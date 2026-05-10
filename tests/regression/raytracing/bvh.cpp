@@ -8,26 +8,12 @@
 #define BINS 8
 // BVH class implementation
 
-BVH::BVH(
-  tri_t *triData, 
-  float3_t *centroids, 
-  uint32_t triCount, 
-  bvh_node_t *bvh_nodes, 
-  bvh_quantized_node_t *bvh_qnodes, 
-  uint32_t *triIndices, 
-  tri_ex_t *triEx, 
-  AABB* prim_aabbs,
-  uint32_t tri_offset
-) {
+BVH::BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t *bvh_nodes, uint32_t *triIndices) {
   bvhNodes_ = bvh_nodes;
-  bvhQNodes_ = bvh_qnodes;
   centroids_ = centroids;
   triCount_ = triCount;
   triData_ = triData;
   triIndices_ = triIndices;
-  triEx_ = triEx;
-  prim_aabbs_ = prim_aabbs;
-  tri_offset_ = tri_offset;
   this->build();
   //visualize(bvhNodes_);
 }
@@ -41,12 +27,9 @@ void BVH::build() {
   root.triCount = triCount_;
   this->subdivide(root);
   std::cout << "BVH Built ... (#node=" << nodeCount_ << ")" << std::endl;
-  this->linearizeData();
-  this->quantize();  
 }
 
 void BVH::subdivide(bvh_node_t &node) {
-  //MAX num triangles per leaf = ???
   this->updateNodeBounds(node);
 
   if(node.triCount <= MAX_LEAF_PRIMITIVES){
@@ -213,88 +196,6 @@ void BVH::updateNodeBounds(bvh_node_t &node) const {
   }
   node.centroidMin = centroid_min;
   node.centroidMax = centroid_max;
-}
-
-AABB BVH::calcTriBounds(const tri_t &tri) const {
-  AABB aabb;
-  aabb.bmin = float3_t(LARGE_FLOAT);
-  aabb.bmax = float3_t(-LARGE_FLOAT);
-
-  aabb.bmin = fminf(aabb.bmin, tri.v0);
-  aabb.bmin = fminf(aabb.bmin, tri.v1);
-  aabb.bmin = fminf(aabb.bmin, tri.v2);
-  aabb.bmax = fmaxf(aabb.bmax, tri.v0);
-  aabb.bmax = fmaxf(aabb.bmax, tri.v1);
-  aabb.bmax = fmaxf(aabb.bmax, tri.v2);
-
-  return aabb;
-}
-
-void BVH::linearizeData() {
-  std::vector<tri_t> sortedTriData(triCount_);
-  std::vector<tri_ex_t> sortedTriEx(triCount_);
-  std::vector<float3_t> sortedCentroids(triCount_);
-
-  for (uint32_t i = 0; i < triCount_; i++) {
-      uint32_t triIdx = triIndices_[i];
-      sortedTriData[i] = triData_[triIdx];
-      sortedTriEx[i] = triEx_[triIdx];
-      sortedCentroids[i] = centroids_[triIdx];
-
-      prim_aabbs_[i] = calcTriBounds(sortedTriData[i]);
-      //std::cout << prim_aabbs_[i].bmin.x << " " << prim_aabbs_[i].bmin.y << " " <<prim_aabbs_[i].bmin.z << std::endl; 
-  }
-
-  std::copy(sortedTriData.begin(), sortedTriData.end(), triData_);
-  std::copy(sortedTriEx.begin(), sortedTriEx.end(), triEx_);
-  std::copy(sortedCentroids.begin(), sortedCentroids.end(), centroids_);
-}
-
-void BVH::quantize(){
-  for(int i=0; i<nodeCount_; i++){
-    bvh_node_t node = bvhNodes_[i];
-    bvh_quantized_node_t &qNode = bvhQNodes_[i];
-
-    qNode.leftFirst = node.leftFirst; 
-
-    if(!node.isLeaf()){
-      qNode.type = BVH_INTERNAL;
-      qNode.internal.origin = node.aabbMin;
-
-      qNode.ex = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.x - node.aabbMin.x) / 255.0f)));
-      qNode.ey = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.y - node.aabbMin.y) / 255.0f)));
-      qNode.ez = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.z - node.aabbMin.z) / 255.0f)));
-
-      for(int k=0; k<BVH_WIDTH; k++){
-        child_data_t qChild;
-
-        if(k < node.childCount){
-          bvh_node_t child = bvhNodes_[node.leftFirst + k];
-
-          qChild.meta = 1; //Do we need meta info, or just a single valid bit?
-
-          qChild.qaabb[0] = static_cast<uint8_t>(std::floor((child.aabbMin.x - qNode.internal.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-          qChild.qaabb[1] = static_cast<uint8_t>(std::floor((child.aabbMin.y - qNode.internal.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-          qChild.qaabb[2] = static_cast<uint8_t>(std::floor((child.aabbMin.z - qNode.internal.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
-
-          qChild.qaabb[3] = static_cast<uint8_t>(std::ceil((child.aabbMax.x - qNode.internal.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-          qChild.qaabb[4] = static_cast<uint8_t>(std::ceil((child.aabbMax.y - qNode.internal.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-          qChild.qaabb[5] = static_cast<uint8_t>(std::ceil((child.aabbMax.z - qNode.internal.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
-
-        }else{
-          qChild.meta = 0;
-        }
-        qNode.internal.children[k] = qChild;
-      }
-    }else{
-      qNode.type = TRIANGLE_LEAF;
-      //qNode.type = PROCEDURAL_LEAF;
-      qNode.leaf.flags = OPAQUE;
-      //qNode.leaf.flags = NON_OPAQUE;
-      qNode.leaf.primCount = node.triCount;
-      qNode.leftFirst += tri_offset_;
-    }
-  }
 }
 
 // TLAS implementation
@@ -615,7 +516,7 @@ void TLAS::quantize(){
   std::cout << "TLAS Quantization starts ... " << std::endl;
   for(int i=0; i<nodeIndex_; i++){
     tlas_node_t node = tlasNodes_[i];
-    bvh_quantized_node_t &qNode = tlasQNodes_[i];
+    cwbvh_node_t &qNode = tlasQNodes_[i];
 
     qNode.leftFirst = node.leftFirst;
     //qNode.imask = 1; //TLAS node
