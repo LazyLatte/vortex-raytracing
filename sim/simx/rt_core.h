@@ -39,12 +39,8 @@ struct BVHNode {
 
         // --- LEAF ---
         struct {
-            union {
-                uint32_t instanceID;
-                uint32_t prim_count;
-            };
-
-            uint32_t shader_idx;
+            uint32_t prim_count;
+            uint32_t geometryIndex;
 
         #define OPAQUE 0
         #define NON_OPAQUE 1
@@ -109,8 +105,9 @@ struct HitAttributes {
 struct Hit {
     float t;
     HitAttributes attrs;
-    uint32_t primitiveID; // 32bits
-    uint32_t instanceID; // 24bits
+    uint32_t primitiveID;
+    uint32_t instanceID;
+    uint32_t geometryIndex;
     bool valid;
 
     Hit(): t(LARGE_FLOAT), primitiveID(0), instanceID(0), valid(false) {}
@@ -162,7 +159,8 @@ struct TraversalState {
     uint32_t root_level;
     uint32_t level;
     uint32_t instanceID;
-
+    uint32_t geometryIndex;
+    
     uint8_t leaf_flags;
     uint32_t prim_count;
     uint32_t prim_base_id;

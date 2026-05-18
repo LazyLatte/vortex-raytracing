@@ -4,13 +4,24 @@
 #include <vx_raytrace.h>
 
 extern "C" {
-  void _start(kernel_arg_t *arg){
+
+void _start(kernel_arg_t *arg){
     uint32_t payload_addr = vortex::rt::get_attr<VX_RT_PAYLOAD_ADDR>();
     ray_payload_t *payload = reinterpret_cast<ray_payload_t*>(payload_addr);
 
-    payload->irradiance += payload->throughput * arg->background_color;
+    uint32_t shader_miss_idx = payload->shader_miss_idx;
+
+    switch(shader_miss_idx){
+        case 0: {
+            payload->irradiance += payload->throughput * arg->background_color;
+            break;
+        }
+
+        default: break;
+    }
+
     payload->stop = true;
     payload->done = true;
-  }
 }
 
+}

@@ -18,6 +18,8 @@
 #define BVH_WIDTH 6
 #define MAX_LEAF_PRIMITIVES 1
 
+enum Geomrtry {CornellBox = 0, Sponza = 1};
+
 struct material_info_t {
   float3_t ambient;
   float3_t diffuse;
@@ -69,12 +71,8 @@ struct cwbvh_node_t {
 
       // --- LEAF ---
       struct {
-          union {
-              uint32_t instanceID;
-              uint32_t primCount;
-          };
-
-          uint32_t shader_idx;
+          uint32_t primCount;
+          uint32_t geometryIndex;
 
         #define OPAQUE 0
         #define NON_OPAQUE 1
@@ -123,23 +121,11 @@ struct tlas_node_t {
   uint32_t leftFirst;
 
   float3_t aabbMax;
-  uint32_t blasIdx; //UINT32_MAX if not leaf
   uint32_t triCount;
   uint32_t start, end;
-  uint32_t childCount = 0;
-  bool isLeaf() const { return blasIdx != UINT32_MAX; }
+  uint32_t childCount;
+  bool isLeaf() const { return childCount == 0; }
 
-  void setLeftRight(uint32_t left, uint32_t right) {
-    leftFirst = (right << 16) | left;
-  }
-
-  uint32_t left() const {
-    return leftFirst & 0xFFFF;
-  }
-
-  uint32_t right() const {
-    return leftFirst >> 16;
-  }
   float calculateNodeCost() const {
     return surfaceArea(aabbMin, aabbMax) * triCount;
   }

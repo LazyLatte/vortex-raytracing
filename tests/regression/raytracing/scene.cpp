@@ -1,5 +1,5 @@
 #include "scene.h"
-#include "treelet.h"
+
 Scene::Scene(const std::vector<Mesh*> &meshes)
   : meshes_(meshes), bvh_list_(meshes.size(), nullptr)
 {}
@@ -19,11 +19,11 @@ int Scene::init() {
   uint32_t num_tris = 0;
   uint64_t total_texture_size = 0;
   uint32_t total_materials = 0;
-  //uint64_t texture_size = 0;
+
   for (auto mesh : meshes_) {
     num_tris += mesh->tri().size();
     total_materials += mesh->materials().size();
-    //texture_size += mesh->texture()->size();
+
     for (auto tex : mesh->textures()) {
       if (tex) total_texture_size += tex->size();
     }
@@ -37,7 +37,6 @@ int Scene::init() {
   triIdx_buf_.resize(num_tris);
   centroids_.resize(num_tris);
   bvh_nodes_.resize(num_tris * 2);
-  cwbvh_nodes_.resize(num_tris * 2);
   blas_nodes_.resize(meshes_.size());
 
   aabb_buf_.resize(num_tris);
@@ -50,14 +49,13 @@ int Scene::init() {
 
   for (uint32_t i = 0; i < meshes_.size(); ++i) {
     auto mesh = meshes_.at(i);
+    size_t tri_count = mesh->tri().size();
 
-    // copy mesh buffers
-    memcpy(tri_buf_.data() + tri_offset, mesh->tri().data(), mesh->tri().size() * sizeof(tri_t));
+    std::copy(mesh->tri().begin(), mesh->tri().end(), tri_buf_.begin() + tri_offset);
+    std::copy(mesh->triEx().begin(), mesh->triEx().end(), triEx_buf_.begin() + tri_offset);
 
-    auto* triEx_ptr = triEx_buf_.data() + tri_offset;
-    memcpy(triEx_ptr, mesh->triEx().data(), mesh->tri().size() * sizeof(tri_ex_t));
-    for (uint32_t j = 0; j < mesh->tri().size(); ++j) {
-      triEx_ptr[j].texId += mat_offset;
+    for (uint32_t j = 0; j < tri_count; ++j) {
+      triEx_buf_[tri_offset + j].texId += mat_offset;
     }
 
     std::vector<uint64_t> mesh_tex_offsets;
@@ -70,7 +68,7 @@ int Scene::init() {
         mesh_tex_offsets.push_back(0); // No texture
       }
     }
-    //memcpy(tex_buf_.data() + tex_offset, mesh->texture()->pixels(), mesh->texture()->size());
+
     for (uint32_t m = 0; m < mesh->materials().size(); ++m) {
       auto mat = mesh->materials()[m];
       if (mat.diffuse_tex_id >= 0) {
@@ -81,11 +79,10 @@ int Scene::init() {
       mat_buf_[mat_offset + m] = mat;
     }
 
-    // precompute triangle indices & centroids
-    for (uint32_t j = 0; j < mesh->tri().size(); ++j) {
-      auto &tri = mesh->tri().at(j);
+    for (uint32_t j = 0; j < tri_count; ++j) {
+      auto &tri = tri_buf_[tri_offset + j];
       triIdx_buf_[tri_offset + j] = tri_offset + j;
-      centroids_[tri_offset + j] = (tri.v0 + tri.v1 + tri.v2) / 3;
+      centroids_[tri_offset + j] = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
     }
 
     // setup blas node
@@ -96,13 +93,15 @@ int Scene::init() {
     blas_node.invTransform = mat4_t::Identity();
     // create BVH
 
-    auto bvh = new BVH(tri_buf_.data(), centroids_.data(), mesh->tri().size(), bvh_nodes_.data() + bvh_offset, triIdx_buf_.data() + tri_offset);
+    auto bvh = new BVH(tri_buf_.data(), centroids_.data(), tri_count, bvh_nodes_.data() + bvh_offset, triIdx_buf_.data() + tri_offset);
 
-    this->compressNodes(tri_offset);
+    std::cout << "BVH " << i << " Built ... (#node=" << bvh->nodeCount() << ")" << std::endl;
+
+    this->compressBLAS(bvh, tri_offset, mesh->getGeometryIndex(), mesh->isOpaque());
 
     // update offsets
     bvh_offset += bvh->nodeCount();
-    tri_offset += mesh->tri().size();
+    tri_offset += tri_count;
     mat_offset += mesh->materials().size();
     bvh_list_[i] = bvh;
   }
@@ -115,10 +114,58 @@ int Scene::init() {
   return 0;
 }
 
-void Scene::compressNodes(uint32_t tri_offset){
-  for(int i=0; i<bvh_nodes_.size(); i++){
-    const bvh_node_t& node = bvh_nodes_[i];
-    cwbvh_node_t& cwNode = cwbvh_nodes_[i];
+void Scene::compressTLAS(){
+  const std::vector<tlas_node_t>& tlas_nodes = tlas_->nodes();
+
+  for(int i=0; i<tlas_nodes.size(); i++){
+    const tlas_node_t& node = tlas_nodes[i];
+    cwbvh_node_t cwNode;
+
+    cwNode.leftFirst = node.leftFirst;
+
+    if(!node.isLeaf()){
+      cwNode.type = BVH_INTERNAL;
+      cwNode.internal.origin = node.aabbMin;
+      cwNode.ex = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.x - node.aabbMin.x) / 255.0f)));
+      cwNode.ey = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.y - node.aabbMin.y) / 255.0f)));
+      cwNode.ez = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.z - node.aabbMin.z) / 255.0f)));
+
+      for(int k=0; k<BVH_WIDTH; k++){
+
+        child_data_t qChild;
+
+        if(k < node.childCount){
+          tlas_node_t child = tlas_nodes[node.leftFirst + k];
+          qChild.meta = 1;
+
+          qChild.qaabb[0] = static_cast<uint8_t>(std::floor((child.aabbMin.x - cwNode.internal.origin.x) / std::exp2f(static_cast<float>(cwNode.ex))));
+          qChild.qaabb[1] = static_cast<uint8_t>(std::floor((child.aabbMin.y - cwNode.internal.origin.y) / std::exp2f(static_cast<float>(cwNode.ey))));
+          qChild.qaabb[2] = static_cast<uint8_t>(std::floor((child.aabbMin.z - cwNode.internal.origin.z) / std::exp2f(static_cast<float>(cwNode.ez))));
+
+          qChild.qaabb[3] = static_cast<uint8_t>(std::ceil((child.aabbMax.x - cwNode.internal.origin.x) / std::exp2f(static_cast<float>(cwNode.ex))));
+          qChild.qaabb[4] = static_cast<uint8_t>(std::ceil((child.aabbMax.y - cwNode.internal.origin.y) / std::exp2f(static_cast<float>(cwNode.ey))));
+          qChild.qaabb[5] = static_cast<uint8_t>(std::ceil((child.aabbMax.z - cwNode.internal.origin.z) / std::exp2f(static_cast<float>(cwNode.ez))));
+        }else{
+          qChild.meta = 0;
+        }
+
+        cwNode.internal.children[k] = qChild;
+      }
+    }else{
+      cwNode.type = INSTANCE_LEAF;
+    }
+
+    cwtlas_nodes_.push_back(cwNode);
+  }
+  
+}
+
+void Scene::compressBLAS(BVH* bvh, uint32_t tri_offset, uint32_t geometryIndex, bool opaque){
+  bvh_node_t* bvh_nodes = bvh->nodes();
+
+  for(int i=0; i<bvh->nodeCount(); i++){
+    const bvh_node_t& node = bvh_nodes[i];
+    cwbvh_node_t cwNode;
 
     cwNode.leftFirst = node.leftFirst; 
 
@@ -134,7 +181,7 @@ void Scene::compressNodes(uint32_t tri_offset){
         child_data_t qChild;
 
         if(k < node.childCount){
-          const bvh_node_t& childNode = bvh_nodes_[node.leftFirst + k];
+          const bvh_node_t& childNode = bvh_nodes[node.leftFirst + k];
 
           qChild.meta = 1; //Do we need meta info, or just a single valid bit?
 
@@ -154,11 +201,13 @@ void Scene::compressNodes(uint32_t tri_offset){
     }else{
       cwNode.type = TRIANGLE_LEAF;
       //cwNode.type = PROCEDURAL_LEAF;
-      cwNode.leaf.flags = OPAQUE;
-      //cwNode.leaf.flags = NON_OPAQUE;
+      cwNode.leaf.flags = opaque ? OPAQUE : NON_OPAQUE;
+      cwNode.leaf.geometryIndex = geometryIndex;
       cwNode.leaf.primCount = node.triCount;
       cwNode.leftFirst += tri_offset;
     }
+
+    cwbvh_nodes_.push_back(cwNode);
   }
 }
 
@@ -191,4 +240,5 @@ void Scene::applyTransform(const mat4_t &transform) {
 void Scene::build() {
   // build TLAS
   tlas_->build();
+  this->compressTLAS();
 }

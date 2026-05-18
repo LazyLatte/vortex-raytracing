@@ -1,9 +1,11 @@
 #include "bvh.h"
 #include "kdtree.h"
-#include "treelet.h"
+#include "utils.h"
 #include <utility>
 #include <cmath>
 #include <iostream>
+#include <algorithm>
+
 // bin count for binned BVH building
 #define BINS 8
 // BVH class implementation
@@ -15,6 +17,7 @@ BVH::BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t *bvh
   triData_ = triData;
   triIndices_ = triIndices;
   this->build();
+  std::cout << "BVH Height: " << max_depth(bvhNodes_, 0) << std::endl;
   //visualize(bvhNodes_);
 }
 
@@ -25,79 +28,98 @@ void BVH::build() {
   bvh_node_t &root = bvhNodes_[nodeCount_++];
   root.leftFirst = 0;
   root.triCount = triCount_;
+  this->updateNodeBounds(root);
   this->subdivide(root);
-  std::cout << "BVH Built ... (#node=" << nodeCount_ << ")" << std::endl;
 }
 
 void BVH::subdivide(bvh_node_t &node) {
-  this->updateNodeBounds(node);
 
   if(node.triCount <= MAX_LEAF_PRIMITIVES){
     return;
   }
   
-  std::vector<bvh_node_t> clusters;
-  clusters.push_back(node);
+  struct ClusterInfo {
+    bvh_node_t node;
+    Split bestSplit;
+    float costReduction;
+  };
 
-  while (clusters.size() < BVH_WIDTH){
-    Split bestSplit{};
+  auto evaluateCluster = [&](ClusterInfo &c) {
+    if (c.node.triCount <= MAX_LEAF_PRIMITIVES) {
+      c.costReduction = -1.0f; // Cannot split
+      return;
+    }
+
+    c.bestSplit = findBestSplitPlane(c.node);
+    
+    if (c.bestSplit.cost == std::numeric_limits<float>::infinity()) {
+      c.costReduction = -1.0f;
+    } else {
+      // Ensure c.node.calculateNodeCost() returns (AABB surface area * triCount)
+      c.costReduction = c.node.calculateNodeCost() - c.bestSplit.cost;
+    }
+  };
+
+  ClusterInfo clusters[BVH_WIDTH];
+  int clusterCount = 0;
+
+  clusters[clusterCount++] = {node, {}, -1.0f};
+  evaluateCluster(clusters[0]);
+
+  while (clusterCount < BVH_WIDTH) {
     float bestDelta = 0.0f;
     int bestIdx = -1;
 
-    for (int i = 0; i < clusters.size(); i++) {
-      auto& c = clusters[i];
-      if (c.triCount <= MAX_LEAF_PRIMITIVES) continue;
-      
-      Split s = findBestSplitPlane(c);
-      
-      // All triangles are in the same bin => no partition happens 
-      if(s.cost == std::numeric_limits<float>::infinity()) continue;
-
-      float delta = c.calculateNodeCost() - s.cost;
-      if (delta > bestDelta) {
-        bestDelta = delta; 
-        bestSplit = s; 
+    for (int i = 0; i < clusterCount; i++) {
+      if (clusters[i].costReduction > bestDelta) {
+        bestDelta = clusters[i].costReduction;
         bestIdx = i;
       }
     }
 
-    if(bestIdx < 0) break;  //No improving split
+    if (bestIdx < 0) break; // No improving split found across all clusters
 
-    uint32_t leftCount = partitionTriangles(clusters[bestIdx], bestSplit);
-    uint32_t rightCount = clusters[bestIdx].triCount - leftCount;
+    ClusterInfo best = clusters[bestIdx];
+    uint32_t leftCount = partitionTriangles(best.node, best.bestSplit);
+    uint32_t rightCount = best.node.triCount - leftCount;
+    assert(leftCount > 0 && rightCount > 0);
 
-    assert(leftCount != 0 && rightCount != 0);
+    ClusterInfo L, R;
+    L.node.leftFirst = best.node.leftFirst;
+    L.node.triCount = leftCount;
+    R.node.leftFirst = best.node.leftFirst + leftCount;
+    R.node.triCount = rightCount;
 
-    bvh_node_t L, R;
-    L.leftFirst = clusters[bestIdx].leftFirst;
-    L.triCount = leftCount;
-    R.leftFirst = clusters[bestIdx].leftFirst + leftCount;
-    R.triCount = rightCount;
+    this->updateNodeBounds(L.node);
+    this->updateNodeBounds(R.node);
+
+    evaluateCluster(L);
+    evaluateCluster(R);
 
     clusters[bestIdx] = L;
-    clusters.push_back(R);
+    clusters[clusterCount++] = R;
   }
 
-  if(clusters.size() == 1){
-    // Leaf with triCount > 1
-    return;
+  if (clusterCount == 1) {
+    // Leaf node logic: it couldn't be split efficiently
+    return; 
   }
 
   uint32_t childIndices[BVH_WIDTH];
-  for(int i=0; i<clusters.size(); i++){
+  for (int i = 0; i < clusterCount; i++) {
     childIndices[i] = nodeCount_++;
   }
 
-  for(int i=0; i<clusters.size(); i++){
-      bvh_node_t &childNode = bvhNodes_[childIndices[i]];
-      childNode.leftFirst = clusters[i].leftFirst;
-      childNode.triCount = clusters[i].triCount;
-      subdivide(childNode);
+  for (int i = 0; i < clusterCount; i++) {
+    bvh_node_t &childNode = bvhNodes_[childIndices[i]];
+    childNode = clusters[i].node; 
+    subdivide(childNode);
   }
 
-  node.triCount = 0; // mark as internal node
+  // Mark current node as internal
+  node.triCount = 0; 
   node.leftFirst = childIndices[0];
-  node.childCount = clusters.size();
+  node.childCount = clusterCount;
 }
 
 uint32_t BVH::partitionTriangles(const bvh_node_t &node, const Split &split) const {
@@ -207,7 +229,7 @@ TLAS::TLAS(const std::vector<BVH *> &bvh_list, const blas_node_t *blas_nodes) : 
   // allocate TLAS nodes
   tlasLeaves_.resize(blasCount_);
   tlasNodes_.resize(nodeCount_);
-  tlasQNodes_.resize(nodeCount_);
+  //tlasQNodes_.resize(nodeCount_);
   // nodeIndices_.resize(blasCount_);
   // triCounts_.resize(blasCount_);
 
@@ -238,12 +260,11 @@ void TLAS::build() {
       bounds.grow(TransformPosition(pos, blas_node.transform.toMat4()));
     }
 
+    tlasLeaves_[i].leftFirst = i; // BLAS Index
     tlasLeaves_[i].aabbMin = bounds.bmin;
     tlasLeaves_[i].aabbMax = bounds.bmax;
-    tlasLeaves_[i].blasIdx = i;
-    tlasLeaves_[i].setLeftRight(0, 0); // leaf node
     tlasLeaves_[i].triCount = bvh->triCount();
-    
+    tlasLeaves_[i].childCount = 0; // leaf node
     //triCounts_[i] = bvh->triCount();
     //nodeIndices_[i] = i;
   }
@@ -251,8 +272,6 @@ void TLAS::build() {
   tlas_node_t &root = tlasNodes_[nodeIndex_++];
   updateNode(root, 0, blasCount_ - 1);
   buildRecursive(root);
-  this->quantize();
-
 }
 
 void TLAS::buildRecursive(tlas_node_t &node) {
@@ -337,19 +356,13 @@ void TLAS::buildRecursive(tlas_node_t &node) {
     }
 
     for(int i=0; i<clusters.size(); i++){
-      tlas_node_t &child  = tlasNodes_[childIndices[i]];
+      tlas_node_t &child = tlasNodes_[childIndices[i]];
       updateNode(child, clusters[i].start, clusters[i].end);
       buildRecursive(child);
     }
   }
-  // for(int i=0; i<clusters.size(); i++){
-  //   std::cout << childIndices[i] << " ";
-  // }
-
-  // std::cout << std::endl;
 
   node.leftFirst = childIndices[0];
-  node.blasIdx = UINT32_MAX;
   node.childCount = clusters.size() == 1 ? 2 : clusters.size();
   //---------------
 
@@ -511,51 +524,3 @@ void TLAS::updateNodeBounds(tlas_node_t &node) const {
 //   c.triCount = this->updateTriCount(start, end);
 //   return c;
 // }
-
-void TLAS::quantize(){
-  std::cout << "TLAS Quantization starts ... " << std::endl;
-  for(int i=0; i<nodeIndex_; i++){
-    tlas_node_t node = tlasNodes_[i];
-    cwbvh_node_t &qNode = tlasQNodes_[i];
-
-    qNode.leftFirst = node.leftFirst;
-    //qNode.imask = 1; //TLAS node
-
-    if(!node.isLeaf()){
-      qNode.type = BVH_INTERNAL;
-      qNode.internal.origin = node.aabbMin;
-      qNode.ex = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.x - node.aabbMin.x) / 255.0f)));
-      qNode.ey = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.y - node.aabbMin.y) / 255.0f)));
-      qNode.ez = static_cast<int8_t>(std::ceil(std::log2((node.aabbMax.z - node.aabbMin.z) / 255.0f)));
-
-      for(int k=0; k<BVH_WIDTH; k++){
-
-        child_data_t qChild;
-
-        if(k < node.childCount){
-          tlas_node_t child = tlasNodes_[node.leftFirst + k];
-          qChild.meta = 1;
-
-          qChild.qaabb[0] = static_cast<uint8_t>(std::floor((child.aabbMin.x - qNode.internal.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-          qChild.qaabb[1] = static_cast<uint8_t>(std::floor((child.aabbMin.y - qNode.internal.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-          qChild.qaabb[2] = static_cast<uint8_t>(std::floor((child.aabbMin.z - qNode.internal.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
-
-          qChild.qaabb[3] = static_cast<uint8_t>(std::ceil((child.aabbMax.x - qNode.internal.origin.x) / std::exp2f(static_cast<float>(qNode.ex))));
-          qChild.qaabb[4] = static_cast<uint8_t>(std::ceil((child.aabbMax.y - qNode.internal.origin.y) / std::exp2f(static_cast<float>(qNode.ey))));
-          qChild.qaabb[5] = static_cast<uint8_t>(std::ceil((child.aabbMax.z - qNode.internal.origin.z) / std::exp2f(static_cast<float>(qNode.ez))));
-        }else{
-          qChild.meta = 0;
-        }
-
-        qNode.internal.children[k] = qChild;
-      }
-    }else{
-      qNode.type = INSTANCE_LEAF;
-      qNode.leaf.instanceID = node.blasIdx;
-    }
-    // std::cout << "Node " << i << ": " << qNode.leftFirst << " " << qNode.leafIdx << " " << node.childCount << std::endl;
-  }
-  //std::cout << "TLAS Quantization ends ... (#node=" << nodeIndex_ << ", " << nodeCount_ << ")" << std::endl;
-  //std::cout << "Root Idx: " << rootIndex_ << std::endl;
-
-}

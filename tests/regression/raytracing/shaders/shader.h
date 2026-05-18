@@ -10,6 +10,10 @@ struct ray_payload_t {
   float3_t origin;
   float3_t direction;
 
+  uint32_t shader_miss_idx;
+  uint32_t shader_record_stride;
+  uint32_t shader_record_offset;
+
   float3_t throughput;
   float3_t irradiance;
 
@@ -18,7 +22,7 @@ struct ray_payload_t {
   volatile bool done;
 };
 
-float3_t texSample(const float2_t &uv, const uint32_t *pixels, uint32_t width, uint32_t height) {
+inline float3_t texSample(const float2_t &uv, const uint32_t *pixels, uint32_t width, uint32_t height) {
   // Convert UVs to texel space
   uint32_t iu = uint32_t(uv.x * width);
   uint32_t iv = uint32_t(uv.y * height);
@@ -33,7 +37,7 @@ float3_t texSample(const float2_t &uv, const uint32_t *pixels, uint32_t width, u
   return RGB8toRGB32F(texel);
 }
 
-float3_t diffuseLighting(const float3_t& pixel,
+inline float3_t diffuseLighting(const float3_t& pixel,
                          const float3_t& normal,
                          const float3_t& diffuse_color,
                          const float3_t& ambient_color,
@@ -47,9 +51,9 @@ float3_t diffuseLighting(const float3_t& pixel,
   return diffuse_color * (ambient_color + att * light_color * NdotL);
 }
 
-float3_t reflect(const float3_t& P, const float3_t& N){ return normalize(P - 2.0f * N * dot(N, P)); }
+inline float3_t reflect(const float3_t& P, const float3_t& N){ return normalize(P - 2.0f * N * dot(N, P)); }
 
-float3_t calcNormal(const tri_t& tri){
+inline float3_t calcNormal(const tri_t& tri){
   float3_t edge1 = tri.v1 - tri.v0;
   float3_t edge2 = tri.v2 - tri.v0;
 

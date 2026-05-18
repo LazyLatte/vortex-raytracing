@@ -65,7 +65,7 @@ Tracer::~Tracer() {
 
 int Tracer::init(const char *kernel_file, uint32_t scene_id) {
   // create scene
-  const std::pair<std::string, std::function<Scene* (void)>> target_scene =  SceneList::AllScenes[scene_id];
+  const std::pair<std::string, std::function<Scene* (void)>> target_scene = SceneList::AllScenes[scene_id];
 
   std::string scene_name = target_scene.first;
   std::function<Scene* (void)> CreateScene =  target_scene.second;
@@ -78,10 +78,10 @@ int Tracer::init(const char *kernel_file, uint32_t scene_id) {
   // upload kernel
   // vx_mem_address(krnl_buffer_) get base address
   RT_CHECK(vx_upload_kernel_file(device_, kernel_file, &krnl_buffer_));
-  RT_CHECK(vx_upload_kernel_file(device_, (scene_name + "-rMiss.vxbin").c_str(), &rMiss_buffer_));
-  RT_CHECK(vx_upload_kernel_file(device_, (scene_name + "-rchit.vxbin").c_str(), &rchit_buffer_));
-  RT_CHECK(vx_upload_kernel_file(device_, (scene_name + "-rint.vxbin").c_str(), &rint_buffer_));
-  RT_CHECK(vx_upload_kernel_file(device_, (scene_name + "-rahit.vxbin").c_str(), &rahit_buffer_));
+  RT_CHECK(vx_upload_kernel_file(device_, "miss.vxbin", &rMiss_buffer_));
+  RT_CHECK(vx_upload_kernel_file(device_, "closet-hit.vxbin", &rchit_buffer_));
+  RT_CHECK(vx_upload_kernel_file(device_, "any-hit.vxbin", &rahit_buffer_));
+  RT_CHECK(vx_upload_kernel_file(device_, "intersection.vxbin",  &rint_buffer_));
 
   // allocate tri buffer
   RT_CHECK(vx_mem_alloc(device_, scene_->tri_buf().size() * sizeof(tri_t), VX_MEM_READ, &triBuffer_));
@@ -92,7 +92,7 @@ int Tracer::init(const char *kernel_file, uint32_t scene_id) {
   RT_CHECK(vx_mem_address(triExBuffer_, &kernel_arg_.triEx_addr));
 
   // allocate tlas buffer
-  RT_CHECK(vx_mem_alloc(device_, scene_->tlas_qnodes().size() * sizeof(cwbvh_node_t), VX_MEM_READ, &tlasBuffer_));
+  RT_CHECK(vx_mem_alloc(device_, scene_->tlas_nodes().size() * sizeof(cwbvh_node_t), VX_MEM_READ, &tlasBuffer_));
   RT_CHECK(vx_mem_address(tlasBuffer_, &kernel_arg_.tlas_addr));
 
   // allocate inst buffer
@@ -128,7 +128,7 @@ int Tracer::init(const char *kernel_file, uint32_t scene_id) {
   // allocate sbt
   RT_CHECK(vx_mem_alloc(device_, sizeof(uint64_t) * 4, VX_MEM_READ, &sbtBuffer_));
   RT_CHECK(vx_mem_address(sbtBuffer_, &kernel_arg_.sbt_addr));
-
+  
   return 0;
 }
 
@@ -143,7 +143,7 @@ int Tracer::setup() {
 
   // build the scene
   scene_->build();
-  kernel_arg_.tlas_root = scene_->tlas_root();
+  // kernel_arg_.tlas_root = scene_->tlas_root();
 
   // setup Camera
   {
@@ -167,7 +167,7 @@ int Tracer::setup() {
   RT_CHECK(vx_copy_to_dev(triExBuffer_, scene_->triEx_buf().data(), 0, scene_->triEx_buf().size() * sizeof(tri_ex_t)));
 
   // upload tlas data
-  RT_CHECK(vx_copy_to_dev(tlasBuffer_, scene_->tlas_qnodes().data(), 0, scene_->tlas_qnodes().size() * sizeof(cwbvh_node_t)));
+  RT_CHECK(vx_copy_to_dev(tlasBuffer_, scene_->cwtlas_nodes().data(), 0, scene_->cwtlas_nodes().size() * sizeof(cwbvh_node_t)));
 
   // upload inst data
   RT_CHECK(vx_copy_to_dev(blasBuffer_, scene_->blas_nodes().data(), 0, scene_->blas_nodes().size() * sizeof(blas_node_t)));
@@ -191,10 +191,8 @@ int Tracer::setup() {
   uint64_t tmp_sbt[4];
   RT_CHECK(vx_mem_address(rMiss_buffer_, &tmp_sbt[0]));
   RT_CHECK(vx_mem_address(rchit_buffer_, &tmp_sbt[1]));
-  if(rint_buffer_)
-    RT_CHECK(vx_mem_address(rint_buffer_, &tmp_sbt[2]));
-  if(rahit_buffer_)
-    RT_CHECK(vx_mem_address(rahit_buffer_, &tmp_sbt[3]));
+  RT_CHECK(vx_mem_address(rint_buffer_, &tmp_sbt[2]));
+  RT_CHECK(vx_mem_address(rahit_buffer_, &tmp_sbt[3]));
   RT_CHECK(vx_copy_to_dev(sbtBuffer_, tmp_sbt, 0, sizeof(uint64_t) * 4));
 
   RT_CHECK(vx_dcr_write(device_, 0x00000006, (uint32_t)(kernel_arg_.tlas_addr)));

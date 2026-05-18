@@ -88,7 +88,6 @@ public:
   void build();
 
   auto &nodes() const { return tlasNodes_; }
-  auto &qnodes() const { return tlasQNodes_; }
 
   uint32_t rootIndex() const { return rootIndex_; }
   
@@ -100,7 +99,6 @@ private:
   Split findBestSplitPlane(tlas_node_t &cluster) const;
   void updateNodeBounds(tlas_node_t &node) const;
   void updateTriCount(tlas_node_t &node) const;
-  void quantize();
   
   struct Cluster {
     uint32_t start, end;
@@ -116,7 +114,7 @@ private:
 
   std::vector<tlas_node_t> tlasLeaves_;
   std::vector<tlas_node_t> tlasNodes_;
-  std::vector<cwbvh_node_t> tlasQNodes_;
+  //std::vector<cwbvh_node_t> tlasQNodes_;
   //std::vector<uint32_t> nodeIndices_;
   //std::vector<uint32_t> triCounts_;
   uint32_t blasCount_ = 0;

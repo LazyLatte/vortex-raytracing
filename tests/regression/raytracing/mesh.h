@@ -3,7 +3,13 @@
 #include "bvh.h"
 #include "surface.h"
 #include "common.h"
+#include <vector>
+#include <string>
+#include <filesystem>
+#include <unordered_map>
+#include <memory>
 #include <iostream>
+#include <cassert>
 
 struct obj_mesh_t {
   struct vert_t {
@@ -38,16 +44,29 @@ struct material_textures_t {
 // 3D object container
 class Mesh {
 public:
-  Mesh(const char *objFile);
-  ~Mesh();
+  explicit Mesh(const std::filesystem::path& objFile, uint32_t geometry_idx, bool opaque = true);
+  ~Mesh() = default;
+
+  Mesh(const Mesh&) = delete;
+  Mesh& operator=(const Mesh&) = delete;
+
+  Mesh(Mesh&&) = default;
+  Mesh& operator=(Mesh&&) = default;
 
   const std::vector<tri_t>& tri() const { return tri_; }
   const std::vector<tri_ex_t>& triEx() const { return triEx_; }
-  const std::vector<Surface*>& textures() const { return textures_; }
   const std::vector<material_info_t>& materials() const { return materials_; }
+  std::vector<Surface*> textures() const;
+
+  bool isOpaque() const { return opaque_; };
+  uint32_t getGeometryIndex() const { return geometry_idx; }
+
 private:
   std::vector<tri_t> tri_;
   std::vector<tri_ex_t> triEx_;
-  std::vector<Surface*> textures_;
   std::vector<material_info_t> materials_;
+  std::vector<std::unique_ptr<Surface>> textures_;
+
+  uint32_t geometry_idx;
+  bool opaque_;
 };

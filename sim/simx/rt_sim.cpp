@@ -196,10 +196,10 @@ void RTSim::check_completion(){
           unsigned *latency_dist = trace_data->get_latency_dist(i);
           
           unsigned long long thread_cycles = 1; // trace complete takes 1 cycle
-          for (unsigned i=0; i<warp_statuses; i++) {
-              for (unsigned j=0; j<ray_statuses; j++) {
-                  if(j!=rt_ray_status::trace_complete){
-                    thread_cycles += latency_dist[i*ray_statuses + j];
+          for (unsigned j = 0; j < warp_statuses; ++j) {
+              for (unsigned k = 0; k < ray_statuses; ++k) {
+                  if (k != rt_ray_status::trace_complete) {
+                    thread_cycles += latency_dist[j * ray_statuses + k];
                   }
               }
           }

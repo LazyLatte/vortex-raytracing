@@ -23,6 +23,7 @@ public:
     {}
 
     ~Impl() {
+        delete rt_core_;
         delete rt_sim_;
     }
 
@@ -194,7 +195,8 @@ public:
             case VX_RT_HIT_ATTR_7: rd_data[tid].u32 = state.hit.attrs[7]; break;
             case VX_RT_HIT_INSTANCE_ID: rd_data[tid].u32 = state.hit.instanceID; break;
             case VX_RT_HIT_PRIMITIVE_ID: rd_data[tid].u32 = state.hit.primitiveID; break;
-
+            case VX_RT_HIT_GEOMETRY_INDEX: rd_data[tid].u32 = state.hit.geometryIndex; break;
+            
             case VX_RT_PAYLOAD_ADDR: rd_data[tid].u32 = state.payload_addr; break;
             default: rd_data[tid].u32 = 0; break;
         }

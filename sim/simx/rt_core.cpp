@@ -51,13 +51,15 @@ void RTCore::traverse(TraversalState& state, per_thread_info &thread_info){
         }else{
             //Leaf Node
             if(isInstanceLeaf(&node)){
-                state.instanceID = node.leaf.instanceID;
+                state.instanceID = node.leftFirst;
                 state.status = TraversalStatus::INSTANCE_HIT;
             }else{  
                 state.prim_count = node.leaf.prim_count;
                 state.prim_base_id = node.leftFirst;
                 state.prim_batch_finished_count = 0;
                 state.leaf_flags = node.leaf.flags;
+
+                state.geometryIndex = node.leaf.geometryIndex;
                 state.status = isProceduralLeaf(&node) ? TraversalStatus::PROCEDURAL_LEAF_HIT : TraversalStatus::TRI_LEAF_HIT;
             }
         }
@@ -367,6 +369,7 @@ void RTCore::ray_nTri_intersect(Triangle* tris, uint32_t triBaseID, uint32_t tri
 
         if (t < state.best_hit.t && t > state.tmin) {
             state.prim_hit[i] = Hit(t, u, v, triBaseID + i, state.instanceID);
+            state.prim_hit[i].geometryIndex = state.geometryIndex;
         }
     }
 }

@@ -67,6 +67,9 @@ void kernel_body(kernel_arg_t *__UNIFORM__ arg) {
               auto ray = GenerateRay(x, y, s, arg);
               payloads[i].origin = ray.orig;
               payloads[i].direction = ray.dir;
+              payloads[i].shader_miss_idx = 0;
+              payloads[i].shader_record_stride = 1;
+              payloads[i].shader_record_offset = 0;
               payloads[i].throughput = {1.0f, 1.0f, 1.0f};
               payloads[i].irradiance = {0.0f, 0.0f, 0.0f};
               payloads[i].bounce = 0;

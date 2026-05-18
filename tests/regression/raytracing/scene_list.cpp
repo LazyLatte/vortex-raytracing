@@ -23,7 +23,7 @@ static std::string resolve_path(const std::string& filename, const std::string& 
 Scene* SceneList::CornellBox(){
     std::vector<Mesh*> meshes(1);
     auto s_model = resolve_path(std::string("assets/") + "CornellBox/CornellBox-Original.obj", ASSETS_PATHS);
-    meshes[0] = new Mesh(s_model.c_str());
+    meshes[0] = new Mesh(s_model.c_str(), (uint32_t)Geomrtry::CornellBox);
 
     // create scene
     Scene* scene = new Scene(meshes);
@@ -41,7 +41,7 @@ Scene* SceneList::CornellBox(){
 Scene* SceneList::Sponza(){
     std::vector<Mesh*> meshes(1);
     auto s_model = resolve_path(std::string("assets/") + "Sponza/sponza.obj", ASSETS_PATHS);
-    meshes[0] = new Mesh(s_model.c_str());
+    meshes[0] = new Mesh(s_model.c_str(), (uint32_t)Geomrtry::Sponza);
 
     // create scene
     Scene* scene = new Scene(meshes);

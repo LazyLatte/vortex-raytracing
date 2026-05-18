@@ -12,15 +12,13 @@ public:
   int init();
 
   void applyTransform(const mat4_t &transform);
-
   void build();
 
   const auto &tlas_nodes() const { return tlas_->nodes(); }
-  const auto &tlas_qnodes() const { return tlas_->qnodes(); }
-  uint32_t tlas_root() const { return tlas_->rootIndex(); }
+  const auto &cwtlas_nodes() const { return cwtlas_nodes_; }
+  //uint32_t tlas_root() const { return tlas_->rootIndex(); }
 
   const auto &blas_nodes() const { return blas_nodes_; }
-  const auto &bvh_nodes() const { return bvh_nodes_; }
   const auto &cwbvh_nodes() const { return cwbvh_nodes_; }
   const auto &aabb_buf() const { return aabb_buf_; }
   const auto &tri_buf() const { return tri_buf_; }
@@ -39,7 +37,8 @@ public:
   float3_t background_color;
 
 private:
-  void compressNodes(uint32_t tri_offset);
+  void compressTLAS();
+  void compressBLAS(BVH* bvh, uint32_t tri_offset, uint32_t geometryIndex, bool opaque);
   void linearizeData();
 
   std::vector<Mesh *> meshes_;
@@ -50,6 +49,7 @@ private:
   std::vector<blas_node_t> blas_nodes_;
   std::vector<bvh_node_t> bvh_nodes_;
   std::vector<cwbvh_node_t> cwbvh_nodes_;
+  std::vector<cwbvh_node_t> cwtlas_nodes_;
   std::vector<tri_t> tri_buf_;
   std::vector<tri_ex_t> triEx_buf_;
   std::vector<uint32_t> triIdx_buf_;
