@@ -13,6 +13,11 @@ RTCore::RTCore(RTUnit* rt_unit, const DCRS &dcrs)
     , dcrs_(dcrs)
 {}
 
+void RTCore::allocate(uint32_t rayID, const Ray& world_ray, uint32_t tlas_addr, float tmin, float tmax){
+    rays_[rayID] = world_ray;
+    traversal_states_[rayID] = TraversalState(world_ray, tlas_addr, tmin, tmax);
+}
+
 void RTCore::traverse(TraversalState& state, per_thread_info &thread_info){
     uint32_t node_ptr = (state.level == state.root_level) ? state.root_ptr : state.pop();
 
@@ -21,57 +26,72 @@ void RTCore::traverse(TraversalState& state, per_thread_info &thread_info){
         dcache_read(&node, node_ptr, sizeof(BVHNode));
         thread_info.RT_mem_accesses.emplace_back(node_ptr, sizeof(BVHNode), TransactionType::BVH_INTERNAL_NODE);
 
-        if(!isLeaf(&node)){
-            std::array<BoxHit, RT_BOX_INTERSECTION_WIDTH> box_hits;
-            uint32_t valid_count = ray_nBox_intersect(node, state, box_hits); // SIMD intersection
+        switch(node.type){
+            case BVH_INTERNAL: {
+                std::array<BoxHit, RT_BOX_INTERSECTION_WIDTH> box_hits;
+                uint32_t valid_count = ray_nBox_intersect(node, state, box_hits); // SIMD intersection
 
-            uint32_t k = state.trail[state.level];
-            uint32_t start = (k == RT_BVH_WIDTH) ? valid_count - 1 : k;
-            uint32_t end = valid_count;
+                uint32_t k = state.trail[state.level];
+                uint32_t start = (k == RT_BVH_WIDTH) ? valid_count - 1 : k;
+                uint32_t end = valid_count;
 
-            if(valid_count == 0 || start >= end){
-                node_ptr = state.pop();
-            }else{
-                std::sort(box_hits.begin(), box_hits.end(), BoxHit::compare);
-
-                BoxHit closest = box_hits[start++];
-                node_ptr = NODE_ADDR(state.root_ptr, node.leftFirst + closest.idx);
-                
-                if(start == end){
-                    state.trail[state.level] = RT_BVH_WIDTH;
+                if(valid_count == 0 || start >= end){
+                    node_ptr = state.pop();
                 }else{
-                    for (int32_t i = (int32_t)end - 1; i >= (int32_t)start; i--) {
-                        uint32_t node_addr = NODE_ADDR(state.root_ptr, node.leftFirst + box_hits[i].idx);
-                        bool isFarthest = (i == (int32_t)end - 1);
-                        state.stack.push(node_addr | isFarthest); // encode one bit info into addr
+                    std::sort(box_hits.begin(), box_hits.end(), BoxHit::compare);
+
+                    BoxHit closest = box_hits[start++];
+                    node_ptr = NODE_ADDR(state.root_ptr, node.leftFirst + closest.idx);
+                    
+                    if(start == end){
+                        state.trail[state.level] = RT_BVH_WIDTH;
+                    }else{
+                        for (int32_t i = (int32_t)end - 1; i >= (int32_t)start; i--) {
+                            uint32_t node_addr = NODE_ADDR(state.root_ptr, node.leftFirst + box_hits[i].idx);
+                            bool isFarthest = (i == (int32_t)end - 1);
+                            state.stack.push(node_addr | isFarthest); // encode one bit info into addr
+                        }
                     }
+                    state.level++;
                 }
-                state.level++;
+                break;
             }
-        }else{
-            //Leaf Node
-            if(isInstanceLeaf(&node)){
+            case INSTANCE_LEAF: {
                 state.instanceID = node.leftFirst;
                 state.status = TraversalStatus::INSTANCE_HIT;
-            }else{  
+                break;
+            }
+            case TRIANGLE_LEAF: {
                 state.prim_count = node.leaf.prim_count;
                 state.prim_base_id = node.leftFirst;
                 state.prim_batch_finished_count = 0;
                 state.leaf_flags = node.leaf.flags;
 
                 state.geometryIndex = node.leaf.geometryIndex;
-                state.status = isProceduralLeaf(&node) ? TraversalStatus::PROCEDURAL_LEAF_HIT : TraversalStatus::TRI_LEAF_HIT;
+                state.status = TraversalStatus::TRI_LEAF_HIT;
+                break;
             }
+            case PROCEDURAL_LEAF: {
+                state.prim_count = node.leaf.prim_count;
+                state.prim_base_id = node.leftFirst;
+                state.prim_batch_finished_count = 0;
+                state.leaf_flags = node.leaf.flags;
+
+                state.geometryIndex = node.leaf.geometryIndex;
+                state.status = TraversalStatus::PROCEDURAL_LEAF_HIT;
+                break;
+            }
+            default: std::abort();
         }
     }
 }
 
-uint32_t RTCore::traverse(uint32_t rayID, per_thread_info &thread_info){
-    tlas_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TLAS_PTR);
-    blas_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_BLAS_PTR);
-    bvh_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_BVH_PTR);
-    tri_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TRI_PTR);
-    aabb_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_AABB_PTR);
+void RTCore::traverse(uint32_t rayID, per_thread_info &thread_info){
+    uint32_t tlas_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TLAS_PTR);
+    uint32_t blas_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_BLAS_PTR);
+    uint32_t bvh_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_BVH_PTR);
+    uint32_t tri_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_TRI_PTR);
+    uint32_t aabb_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_AABB_PTR);
 
     TraversalState& state = traversal_states_[rayID];
     
@@ -117,7 +137,8 @@ uint32_t RTCore::traverse(uint32_t rayID, per_thread_info &thread_info){
                     if(state.has_prim_hit()){
 
                         if(state.leaf_flags == NON_OPAQUE){
-                            return ShaderType::ANYHIT;
+                            shader_queue_push(ShaderType::ANYHIT, rayID);
+                            return;
                         }
 
                         else if(state.leaf_flags == OPAQUE){
@@ -154,7 +175,8 @@ uint32_t RTCore::traverse(uint32_t rayID, per_thread_info &thread_info){
                     ray_nBox_intersect(prim_boxes, prim_start_id, prim_batch_size, state); 
 
                     if(state.has_prim_hit()){
-                        return ShaderType::INTERSECTION;
+                        shader_queue_push(ShaderType::INTERSECTION, rayID);
+                        return;
                     }
                 }
 
@@ -171,7 +193,8 @@ uint32_t RTCore::traverse(uint32_t rayID, per_thread_info &thread_info){
             case TraversalStatus::FINISHED: {
                 if(state.root_ptr == tlas_ptr || state.root_level == 0 || state.trail[0] == RT_BVH_WIDTH){
                     // TLAS Finished
-                    return state.best_hit.valid ? ShaderType::CLOSET : ShaderType::MISS;
+                    shader_queue_push(state.best_hit.valid ? ShaderType::CLOSET : ShaderType::MISS, rayID);
+                    return;
                 }else{
                     // BLAS Finished (BLAS -> TLAS)
                     state.ray = rays_[rayID];
@@ -196,7 +219,45 @@ uint32_t RTCore::traverse(uint32_t rayID, per_thread_info &thread_info){
     }
 }
 
-uint32_t RTCore::commit(uint32_t rayID, uint32_t hitID, Hit hit, ShaderType type, per_thread_info &thread_info){
+void RTCore::shader_queue_push(ShaderType type, uint32_t rayID){
+    switch(type){
+        case ShaderType::MISS:
+        case ShaderType::CLOSET:
+            shader_queues_[type].push(rayID);
+            break;
+
+        case ShaderType::ANYHIT:
+        case ShaderType::INTERSECTION:
+            for(uint32_t idx = 0; idx < RT_BOX_INTERSECTION_WIDTH; idx++){
+                if(traversal_states_[rayID].prim_hit[idx].valid){
+                    shader_queues_[type].push((idx << 28) | rayID);
+                }
+            }
+            break;
+
+        default: break;
+    }
+}
+
+ShaderType RTCore::shader_queue_pop(uint32_t out_warp[SIMD_WIDTH], uint32_t& active_lanes){
+    ShaderType targetType = ShaderType::MISS;
+    if(shader_queues_[ShaderType::CLOSET].size() > shader_queues_[targetType].size()){
+        targetType = ShaderType::CLOSET;
+    }  
+
+    if(shader_queues_[ShaderType::INTERSECTION].size() > shader_queues_[targetType].size()){
+        targetType = ShaderType::INTERSECTION;
+    }
+
+    if(shader_queues_[ShaderType::ANYHIT].size() > shader_queues_[targetType].size()){
+        targetType = ShaderType::ANYHIT;
+    }
+
+    active_lanes = shader_queues_[targetType].pop_warp(out_warp);
+    return targetType;
+}
+
+void RTCore::commit(uint32_t rayID, uint32_t hitID, Hit hit, ShaderType type, per_thread_info &thread_info){
     TraversalState& state = traversal_states_[rayID];
 
     if(hit.valid && hit.t < state.best_hit.t){
@@ -209,7 +270,7 @@ uint32_t RTCore::commit(uint32_t rayID, uint32_t hitID, Hit hit, ShaderType type
                 state.best_hit = hit;
             }else{
                 state.prim_hit[hitID] = hit;
-                return ShaderType::ANYHIT; // should return when !state.has_prim_hit()
+                //return ShaderType::ANYHIT; // should return when !state.has_prim_hit()
             }
         }
     }
@@ -218,10 +279,8 @@ uint32_t RTCore::commit(uint32_t rayID, uint32_t hitID, Hit hit, ShaderType type
 
     if(!state.has_prim_hit()){
         state.prim_batch_finished_count++;
-        return traverse(rayID, thread_info);
+        // traverse(rayID, thread_info);
     }
-
-    return 0xFFFFFFFF;
 }
 
 Ray RTCore::ray_transform(const Ray &ray, float *T){

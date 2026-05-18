@@ -47,26 +47,6 @@ public:
         core_->dcache_write(data, addr, size);
     }
 
-    void shader_push(uint32_t type, uint32_t rayID){
-        switch(type){
-            case ShaderType::MISS:
-            case ShaderType::CLOSET:
-                shader_queues[type].push(rayID);
-                break;
-
-            case ShaderType::ANYHIT:
-            case ShaderType::INTERSECTION:
-                for(uint32_t idx = 0; idx < RT_BOX_INTERSECTION_WIDTH; idx++){
-                    if(rt_core_->traversal_states_[rayID].prim_hit[idx].valid){
-                        shader_queues[type].push((idx << 28) | rayID);
-                    }
-                }
-                break;
-
-            default: break;
-        }
-    }
-
     void traverse(uint32_t wid, uint32_t tid, const std::vector<reg_data_t>& rs1_data, RtuTraceData* trace_data){
         ShaderState& state = shader_states_.at(wid).at(tid);
 
@@ -74,82 +54,64 @@ public:
 
         uint32_t rayID = (ray_id_++) & 0x0FFFFFFF;
 
-        rt_core_->rays_[rayID] = state.world_ray;
-        rt_core_->traversal_states_[rayID] = TraversalState(state.world_ray, tlas_addr, state.tmin, state.tmax);
         payload_addrs_[rayID] = state.payload_addr;
 
-        uint32_t type = rt_core_->traverse(rayID, trace_data->m_per_scalar_thread[tid]);
-
-        shader_push(type, rayID);
-    
-    }
-
-    ShaderType schedule_work(){
-        ShaderType targetType = ShaderType::MISS;
-        if(shader_queues[ShaderType::CLOSET].size() > shader_queues[targetType].size()){
-            targetType = ShaderType::CLOSET;
-        }  
-
-        if(shader_queues[ShaderType::INTERSECTION].size() > shader_queues[targetType].size()){
-            targetType = ShaderType::INTERSECTION;
-        }
-
-        if(shader_queues[ShaderType::ANYHIT].size() > shader_queues[targetType].size()){
-            targetType = ShaderType::ANYHIT;
-        }
-
-        return targetType;
+        rt_core_->allocate(rayID, state.world_ray, tlas_addr, state.tmin, state.tmax);
+        rt_core_->traverse(rayID, trace_data->m_per_scalar_thread[tid]);
     }
 
     void get_work(uint32_t wid, std::vector<reg_data_t>& rd_data){
-        uint32_t type = schedule_work();
+        uint32_t active_lanes;
+        uint32_t out_warp[SIMD_WIDTH];
+        ShaderType type = rt_core_->shader_queue_pop(out_warp, active_lanes);
 
-        uint32_t out_warp[num_lanes_];
-        uint32_t active_lanes = shader_queues[type].pop_warp(out_warp);
-        
         for (uint32_t tid = 0; tid < num_lanes_; tid++) {
             if(tid < active_lanes){
                 uint32_t data = out_warp[tid];
                 uint32_t rayID = data & 0x0FFFFFFF;
                 uint32_t hitID = data >> 28;
 
+                const Ray& world_ray = rt_core_->get_world_ray(rayID);
+                const TraversalState& state = rt_core_->get_traversal_state(rayID);
+
                 switch(type){
                     case ShaderType::MISS:{
-                        shader_states_.at(wid).at(tid).world_ray = rt_core_->rays_[rayID];
-                        shader_states_.at(wid).at(tid).tmin = rt_core_->traversal_states_[rayID].tmin;
-                        shader_states_.at(wid).at(tid).tmax = rt_core_->traversal_states_[rayID].best_hit.t;
+                        shader_states_.at(wid).at(tid).world_ray = world_ray;
+                        shader_states_.at(wid).at(tid).tmin = state.tmin;
+                        shader_states_.at(wid).at(tid).tmax = state.best_hit.t;
                         shader_states_.at(wid).at(tid).payload_addr = payload_addrs_[rayID];
                         break;
                     }
 
                     case ShaderType::CLOSET:{
-                        shader_states_.at(wid).at(tid).world_ray = rt_core_->rays_[rayID];
-                        shader_states_.at(wid).at(tid).object_ray = rt_core_->traversal_states_[rayID].ray;
-                        shader_states_.at(wid).at(tid).tmin = rt_core_->traversal_states_[rayID].tmin;
-                        shader_states_.at(wid).at(tid).tmax = rt_core_->traversal_states_[rayID].best_hit.t;
-                        shader_states_.at(wid).at(tid).hit = rt_core_->traversal_states_[rayID].best_hit;
+                        shader_states_.at(wid).at(tid).world_ray = world_ray;
+                        shader_states_.at(wid).at(tid).object_ray = state.ray;
+                        shader_states_.at(wid).at(tid).tmin = state.tmin;
+                        shader_states_.at(wid).at(tid).tmax = state.best_hit.t;
+                        shader_states_.at(wid).at(tid).hit = state.best_hit;
                         shader_states_.at(wid).at(tid).payload_addr = payload_addrs_[rayID];
                         break;
                     }
 
                     case ShaderType::ANYHIT:{
                         shader_states_.at(wid).at(tid).id = data;
-                        shader_states_.at(wid).at(tid).world_ray = rt_core_->rays_[rayID];
-                        shader_states_.at(wid).at(tid).object_ray = rt_core_->traversal_states_[rayID].ray;
-                        shader_states_.at(wid).at(tid).tmin = rt_core_->traversal_states_[rayID].tmin;
-                        shader_states_.at(wid).at(tid).tmax = rt_core_->traversal_states_[rayID].best_hit.t;
-                        shader_states_.at(wid).at(tid).hit = rt_core_->traversal_states_[rayID].prim_hit[hitID];
+                        shader_states_.at(wid).at(tid).world_ray = world_ray;
+                        shader_states_.at(wid).at(tid).object_ray = state.ray;
+                        shader_states_.at(wid).at(tid).tmin = state.tmin;
+                        shader_states_.at(wid).at(tid).tmax = state.best_hit.t;
+                        shader_states_.at(wid).at(tid).hit = state.prim_hit[hitID];
                         shader_states_.at(wid).at(tid).payload_addr = payload_addrs_[rayID];
                         break;
                     }
 
                     case ShaderType::INTERSECTION:{
                         shader_states_.at(wid).at(tid).id = data;
-                        shader_states_.at(wid).at(tid).world_ray = rt_core_->rays_[rayID];
-                        shader_states_.at(wid).at(tid).object_ray = rt_core_->traversal_states_[rayID].ray;
-                        shader_states_.at(wid).at(tid).tmin = rt_core_->traversal_states_[rayID].tmin;
-                        shader_states_.at(wid).at(tid).tmax = rt_core_->traversal_states_[rayID].best_hit.t;
-                        shader_states_.at(wid).at(tid).hit = rt_core_->traversal_states_[rayID].prim_hit[hitID];
+                        shader_states_.at(wid).at(tid).world_ray = world_ray;
+                        shader_states_.at(wid).at(tid).object_ray = state.ray;
+                        shader_states_.at(wid).at(tid).tmin = state.tmin;
+                        shader_states_.at(wid).at(tid).tmax = state.best_hit.t;
+                        shader_states_.at(wid).at(tid).hit = state.prim_hit[hitID];
+                        shader_states_.at(wid).at(tid).payload_addr = payload_addrs_[rayID];
                         break;
                     }
 
@@ -248,25 +210,21 @@ public:
         uint32_t rayID = state.id & 0x0FFFFFFF;
         uint32_t hitID = state.id >> 28;
 
-        uint32_t type = 0xFFFFFFFF;
-
         switch(action){
             case VX_RT_ANYHIT_IGNORE: 
-                type = rt_core_->commit(rayID, hitID, Hit(), ShaderType::ANYHIT, trace_data->m_per_scalar_thread[tid]);
+                rt_core_->commit(rayID, hitID, Hit(), ShaderType::ANYHIT, trace_data->m_per_scalar_thread[tid]);
                 break;
             case VX_RT_INTERSECTION_IGNORE:
-                type = rt_core_->commit(rayID, hitID, Hit(), ShaderType::INTERSECTION, trace_data->m_per_scalar_thread[tid]);
+                 rt_core_->commit(rayID, hitID, Hit(), ShaderType::INTERSECTION, trace_data->m_per_scalar_thread[tid]);
                 break;
             case VX_RT_ANYHIT_ACCEPT: 
-                type = rt_core_->commit(rayID, hitID, state.hit, ShaderType::ANYHIT, trace_data->m_per_scalar_thread[tid]);
+                rt_core_->commit(rayID, hitID, state.hit, ShaderType::ANYHIT, trace_data->m_per_scalar_thread[tid]);
                 break;
             case VX_RT_INTERSECTION_ACCEPT:
-                type = rt_core_->commit(rayID, hitID, state.hit, ShaderType::INTERSECTION, trace_data->m_per_scalar_thread[tid]);
+                rt_core_->commit(rayID, hitID, state.hit, ShaderType::INTERSECTION, trace_data->m_per_scalar_thread[tid]);
                 break;
             default: break;
-        }
-        
-        shader_push(type, rayID);    
+        } 
     }
     
 private:
@@ -282,7 +240,6 @@ private:
 
     uint32_t ray_id_;
     std::unordered_map<uint32_t, uint32_t> payload_addrs_;
-    std::array<ShaderQueue<RT_SHADER_QUEUE_CAPACITY, NUM_RTU_LANES>, ShaderTypes> shader_queues;
 
     struct ShaderState {
         uint32_t id;

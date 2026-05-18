@@ -243,18 +243,20 @@ struct TraversalState {
     }
 };
 
-enum ShaderType {MISS, CLOSET, INTERSECTION, ANYHIT, ShaderTypes};
+enum ShaderType {MISS, CLOSET, INTERSECTION, ANYHIT, NUM_OF_SHADER_TYPES};
 
 class RTUnit;
 
 class RTCore {
 public:
     RTCore(RTUnit* rt_unit, const DCRS &dcrs);
-    uint32_t traverse(uint32_t rayID, per_thread_info &thread_info);
-    uint32_t commit(uint32_t rayID, uint32_t hitID, Hit hit, ShaderType type, per_thread_info &thread_info);
+    void allocate(uint32_t rayID, const Ray& ray, uint32_t tlas_addr, float tmin, float tmax);
+    void traverse(uint32_t rayID, per_thread_info &thread_info);
+    ShaderType shader_queue_pop(uint32_t out_warp[SIMD_WIDTH], uint32_t& active_lanes);
+    void commit(uint32_t rayID, uint32_t hitID, Hit hit, ShaderType type, per_thread_info &thread_info);
 
-    std::unordered_map<uint32_t, Ray> rays_;
-    std::unordered_map<uint32_t, TraversalState> traversal_states_;
+    const Ray& get_world_ray(uint32_t rayID) const { return rays_.at(rayID); }
+    const TraversalState& get_traversal_state(uint32_t rayID) const { return traversal_states_.at(rayID); }
 private:
     Ray ray_transform(const Ray &ray, float *T);
     void ray_box_intersect(const Ray &ray, float min_x, float min_y, float min_z, float max_x, float max_y, float max_z, float& t_near, float& t_far);
@@ -264,15 +266,14 @@ private:
     float ray_tri_intersect(const Ray &ray, const Triangle &tri, float &u, float &v);
     void ray_nTri_intersect(Triangle* tris, uint32_t triBaseID, uint32_t triCount, TraversalState& state);
 
+    void shader_queue_push(ShaderType type, uint32_t rayID);
     void traverse(TraversalState& state, per_thread_info &thread_info);
 
     void dcache_read(void* data, uint64_t addr, uint32_t size);
 
-    bool isLeaf(BVHNode *node){ return node->type != BVH_INTERNAL; }
-    bool isInstanceLeaf(BVHNode *node){ return node->type == INSTANCE_LEAF; }
-    bool isProceduralLeaf(BVHNode *node){ return node->type == PROCEDURAL_LEAF; }
-
-    uint32_t tlas_ptr, blas_ptr, bvh_ptr, tri_ptr, aabb_ptr;
+    std::unordered_map<uint32_t, Ray> rays_;
+    std::unordered_map<uint32_t, TraversalState> traversal_states_;
+    std::array<ShaderQueue<RT_SHADER_QUEUE_CAPACITY, SIMD_WIDTH>, NUM_OF_SHADER_TYPES> shader_queues_;
 
     RTUnit* rt_unit_;
     const DCRS& dcrs_;
