@@ -270,7 +270,8 @@ void RTCore::commit(uint32_t rayID, uint32_t hitID, Hit hit, ShaderType type, pe
                 state.best_hit = hit;
             }else{
                 state.prim_hit[hitID] = hit;
-                //return ShaderType::ANYHIT; // should return when !state.has_prim_hit()
+                shader_queue_push(ShaderType::ANYHIT, rayID);
+                return; // should return when !state.has_prim_hit()
             }
         }
     }
@@ -279,7 +280,7 @@ void RTCore::commit(uint32_t rayID, uint32_t hitID, Hit hit, ShaderType type, pe
 
     if(!state.has_prim_hit()){
         state.prim_batch_finished_count++;
-        // traverse(rayID, thread_info);
+        traverse(rayID, thread_info);
     }
 }
 
