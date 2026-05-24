@@ -1,0 +1,44 @@
+#pragma once
+#include "shader.h"
+#include <vx_raytrace.h>
+
+namespace Shader{
+namespace Spring {
+
+inline void CHS(ray_payload_t *payload, kernel_arg_t *arg){
+    uint32_t _t = vortex::rt::get_attr<VX_RT_HIT_T>();
+    uint32_t _u = vortex::rt::get_attr<VX_RT_HIT_ATTR_U>();
+    uint32_t _v = vortex::rt::get_attr<VX_RT_HIT_ATTR_V>();
+    uint32_t instanceID = vortex::rt::get_attr<VX_RT_HIT_INSTANCE_ID>();
+    uint32_t primitiveID = vortex::rt::get_attr<VX_RT_HIT_PRIMITIVE_ID>();
+
+    float t  = *reinterpret_cast<float*>(&_t);
+    float bx = *reinterpret_cast<float*>(&_u);
+    float by = *reinterpret_cast<float*>(&_v);
+    float bz = 1 - bx - by;
+
+    auto triEx_ptr = reinterpret_cast<const tri_ex_t *>(arg->triEx_addr);
+    const tri_ex_t &triEx = triEx_ptr[primitiveID];
+
+    auto blas_ptr = reinterpret_cast<const blas_node_t *>(arg->blas_addr);
+    auto &blas = blas_ptr[instanceID];
+
+    // intersection point
+    float3_t I = payload->origin + payload->direction * t;
+
+    // interpolated, transformed normal
+    float3_t N = triEx.N1 * bx + triEx.N2 * by + triEx.N0 * bz;
+
+    // barycentric UV
+    float2_t uv = triEx.uv1 * bx + triEx.uv2 * by + triEx.uv0 * bz;
+   
+    auto mat_ptr = reinterpret_cast<const material_info_t *>(arg->mat_addr);
+    const material_info_t &mat = mat_ptr[triEx.texId];
+    float3_t albedo = mat.diffuse;
+    payload->irradiance += payload->throughput * albedo;
+    payload->stop = true;
+}
+
+}
+}
+

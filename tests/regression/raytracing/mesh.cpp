@@ -47,14 +47,12 @@ Mesh::Mesh(const std::filesystem::path& objFile, uint32_t geometry_idx, bool opa
         m.ior       = mat.ior;
         m.dissolve  = mat.dissolve;
 
-        if (!mat.diffuse_texname.empty()) {
+        std::filesystem::path texPath = objFile.parent_path() / mat.diffuse_texname;
+        if (!mat.diffuse_texname.empty() && std::filesystem::exists(texPath)) {
             if (loaded_textures.find(mat.diffuse_texname) == loaded_textures.end()) {
-                std::filesystem::path fullPath = objFile.parent_path() / mat.diffuse_texname;
-                
-                textures_.push_back(std::make_unique<Surface>(fullPath.string().c_str()));
+                textures_.push_back(std::make_unique<Surface>(texPath.string().c_str()));
                 loaded_textures[mat.diffuse_texname] = static_cast<int>(textures_.size() - 1);
             }
-            
             m.diffuse_tex_id = loaded_textures[mat.diffuse_texname];
             m.tex_width  = textures_[m.diffuse_tex_id]->width();
             m.tex_height = textures_[m.diffuse_tex_id]->height();

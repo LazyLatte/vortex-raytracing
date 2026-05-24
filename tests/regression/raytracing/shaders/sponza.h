@@ -28,8 +28,6 @@ inline void CHS(ray_payload_t *payload, kernel_arg_t *arg){
 
     // interpolated, transformed normal
     float3_t N = triEx.N1 * bx + triEx.N2 * by + triEx.N0 * bz;
-    mat4_t invTranspose = blas.invTransform.transposed();
-    N = normalize(TransformVector(N, invTranspose));
 
     // barycentric UV
     float2_t uv = triEx.uv1 * bx + triEx.uv2 * by + triEx.uv0 * bz;
@@ -47,22 +45,7 @@ inline void CHS(ray_payload_t *payload, kernel_arg_t *arg){
     }
 
     payload->irradiance += payload->throughput * albedo;
-
-    // Handle Emission (Light Sources)
-    if(length(mat.emissive) > 0.0f){
-        payload->irradiance += payload->throughput * mat.emissive;
-        payload->stop = true;
-    } else {
-        // Prepare Reflection (Only if not a light)
-        payload->throughput *= albedo;
-        payload->origin = I + N * 0.001f;
-        payload->direction = reflect(payload->direction, N);
-        payload->bounce++;
-
-        if (payload->bounce >= arg->max_depth) {
-            payload->stop = true;
-        }
-    }
+    payload->stop = true;
 }
 
 // inline void AHS(kernel_arg_t *arg){}

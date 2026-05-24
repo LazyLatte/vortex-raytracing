@@ -18,13 +18,13 @@
 #define BVH_WIDTH 6
 #define MAX_LEAF_PRIMITIVES 1
 
-enum Geomrtry {CornellBox = 0, Sponza = 1};
+enum Geomrtry {CornellBox = 0, Sponza = 1, Spring = 2};
 
 struct material_info_t {
   float3_t ambient;
   float3_t diffuse;
   float3_t specular;
-  float3_t emissive = {0.0, 0.0, 0.0};
+  float3_t emissive;
   
   float shininess;
   float ior;
@@ -193,6 +193,7 @@ typedef struct {
   float3_t light_color;
   float3_t ambient_color;
   float3_t background_color;
+  uint32_t has_sky;
 
   uint64_t sbt_addr;
 } kernel_arg_t;

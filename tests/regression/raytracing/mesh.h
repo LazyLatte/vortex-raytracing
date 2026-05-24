@@ -61,6 +61,15 @@ public:
   bool isOpaque() const { return opaque_; };
   uint32_t getGeometryIndex() const { return geometry_idx; }
 
+  void setAllDiffuse(float3_t color) {
+    for (auto& m : materials_) {
+      m.diffuse = color;
+      m.diffuse_tex_id = -1;
+      m.tex_width = 0;
+      m.tex_height = 0;
+    }
+  }
+
 private:
   std::vector<tri_t> tri_;
   std::vector<tri_ex_t> triEx_;

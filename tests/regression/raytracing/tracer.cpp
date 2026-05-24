@@ -135,11 +135,7 @@ int Tracer::init(const char *kernel_file, uint32_t scene_id) {
 int Tracer::setup() {
 
   // transform BVH instances
-  // {
-  //   // slightly rotate the scene
-  //   auto T = mat4_t::RotateX(-PI / 4) * mat4_t::RotateY(PI / 4);
-  //   scene_->applyTransform(T);
-  // }
+  scene_->applyTransform(scene_->scene_transform);
 
   // build the scene
   scene_->build();
@@ -200,8 +196,7 @@ int Tracer::setup() {
   RT_CHECK(vx_dcr_write(device_, 0x00000008, (uint32_t)(kernel_arg_.bvh_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x00000009, (uint32_t)(kernel_arg_.tri_addr)));
   RT_CHECK(vx_dcr_write(device_, 0x0000000A, (uint32_t)(kernel_arg_.aabb_addr)));
-
-  //RT_CHECK(vx_dcr_write(device_, 0x0000000C, (uint32_t)(kernel_arg_.sbt_addr)));
+  
   return 0;
 }
 

@@ -1,5 +1,6 @@
 #include "cornellbox.h"
 #include "sponza.h"
+#include "spring.h"
 #include <vx_spawn.h>
 #include <vx_print.h>
 #include <vx_raytrace.h>
@@ -22,6 +23,9 @@ void _start(kernel_arg_t *arg){
             break;
         case 1: // Sponza
             Shader::Sponza::CHS(payload, arg);
+            break;
+        case 2: // Spring
+            Shader::Spring::CHS(payload, arg);
             break;
         default: break;
     }

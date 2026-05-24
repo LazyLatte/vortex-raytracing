@@ -35,6 +35,7 @@ public:
   float3_t light_color;
   float3_t ambient_color;
   float3_t background_color;
+  mat4_t scene_transform = mat4_t::Identity();
 
 private:
   void compressTLAS();
