@@ -60,10 +60,12 @@ Mesh::Mesh(const std::filesystem::path& objFile, uint32_t geometry_idx, bool opa
             m.diffuse_tex_id = loaded_textures[mat.diffuse_texname];
             m.tex_width  = textures_[m.diffuse_tex_id]->width();
             m.tex_height = textures_[m.diffuse_tex_id]->height();
+            m.has_alpha  = textures_[m.diffuse_tex_id]->hasAlpha() ? 1 : 0;
         } else {
             m.diffuse_tex_id = -1;
-            m.tex_width = 0;
+            m.tex_width  = 0;
             m.tex_height = 0;
+            m.has_alpha  = 0;
         }
         materials_.push_back(m);
     }

@@ -15,5 +15,6 @@ public:
     static Scene* Spring();
     static Scene* RtInOneWeekend();
     static Scene* RtInOneWeekendProc();
+    static Scene* Chestnut();
 	static const std::vector<std::pair<std::string, std::function<Scene* (void)>>> AllScenes;
 };

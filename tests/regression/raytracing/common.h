@@ -23,8 +23,9 @@ enum Geomrtry : uint32_t {
   CornellBox = 1, 
   Bunny = 2,
   Sponza = 3, 
-  Spring = 4, 
-  RtInOneWeekend = 5
+  Spring = 4,
+  RtInOneWeekend = 5,
+  Chestnut = 6
 };
 
 //enum ShapeType : uint32_t { Sphere = 0 };
@@ -48,9 +49,10 @@ struct material_info_t {
 
   int diffuse_tex_id;
   int illum;
-  uint32_t tex_width; 
+  uint32_t tex_width;
   uint32_t tex_height;
   uint64_t tex_offset;
+  uint32_t has_alpha;
 };
 
 // additional triangle data, for texturing and shading

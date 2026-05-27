@@ -299,6 +299,26 @@ Scene* SceneList::RtInOneWeekendProc() {
     return scene;
 }
 
+Scene* SceneList::Chestnut() {
+    auto s_model = resolve_path(std::string("assets/") + "Chestnut/chestnut.obj", ASSETS_PATHS);
+    auto* chestnutMesh = new Mesh(s_model, Geomrtry::Chestnut, false);
+
+    // -75° rotation around X to orient the model upright
+    const mat4_t T = mat4_t::RotateX(-75.0f * PI / 180.0f);
+    chestnutMesh->setTransform(T);
+
+    Scene* scene = new Scene({chestnutMesh});
+
+    // eye=(20,0,100) looking toward (20,100,0)
+    scene->camera_pos   = float3_t(20.0f, 0.0f, 100.0f);
+    scene->camera_front = normalize(float3_t(0.0f, 100.0f, -100.0f));
+    scene->camera_fov   = 2.1445f;  // 50° vertical FOV: 1/tan(25°)
+
+    scene->light_pos        = float3_t(0.0f, 0.0f, 0.0f);
+    scene->background_color = float3_t(0.5f, 0.7f, 1.0f);
+    return scene;
+}
+
 const std::vector<std::pair<std::string, std::function<Scene* (void)>>> SceneList::AllScenes = {
     {"cornellbox", CornellBox},
     {"bunny", Bunny},
@@ -306,5 +326,6 @@ const std::vector<std::pair<std::string, std::function<Scene* (void)>>> SceneLis
     {"carnival", Carnival},
     {"spring", Spring},
     {"rtiow", RtInOneWeekend},
-    {"rtiow-proc", RtInOneWeekendProc}
+    {"rtiow-proc", RtInOneWeekendProc},
+    {"chestnut", Chestnut}
 };

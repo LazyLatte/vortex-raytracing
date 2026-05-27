@@ -4,6 +4,7 @@
 #include "sponza.h"
 #include "spring.h"
 #include "rtiow.h"
+#include "chestnut.h"
 #include <vx_spawn.h>
 #include <vx_print.h>
 #include <vx_raytrace.h>
@@ -38,6 +39,9 @@ void _start(kernel_arg_t *arg){
             break;
         case Geomrtry::RtInOneWeekend: // RtInOneWeekend
             Shader::RtInOneWeekend::CHS(payload, arg);
+            break;
+        case Geomrtry::Chestnut: // Chestnut
+            Shader::Chestnut::CHS(payload, arg);
             break;
         default: break;
     }

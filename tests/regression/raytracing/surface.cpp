@@ -40,14 +40,19 @@ void Surface::loadImage(const char *file) {
     stbi_image_free(data);
     bpp_ = 3 * sizeof(float);
   } else {
-    uint8_t *data = stbi_load(file, (int*)&width_, (int*)&height_, nullptr, 3);
+    int channels_in_file = 0;
+    uint8_t *data = stbi_load(file, (int*)&width_, (int*)&height_, &channels_in_file, 4);
     if (data) {
       const int s = width_ * height_;
       auto dest = (uint32_t *)std::aligned_alloc(64, s * sizeof(uint32_t));
       for (int i = 0; i < s; i++) {
-        dest[i] = (data[i * 3 + 0] << 16) + (data[i * 3 + 1] << 8) + data[i * 3 + 2];
+        dest[i] = ((uint32_t)data[i * 4 + 3] << 24)
+                | ((uint32_t)data[i * 4 + 0] << 16)
+                | ((uint32_t)data[i * 4 + 1] << 8)
+                |  (uint32_t)data[i * 4 + 2];
       }
       pixels_ = (uint8_t*)dest;
+      hasAlpha_ = (channels_in_file == 4);
     }
     stbi_image_free(data);
     bpp_ = sizeof(uint32_t);

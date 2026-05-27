@@ -23,18 +23,17 @@ struct ray_payload_t {
 };
 
 inline float3_t texSample(const float2_t &uv, const uint32_t *pixels, uint32_t width, uint32_t height) {
-  // Convert UVs to texel space
-  uint32_t iu = uint32_t(uv.x * width);
-  uint32_t iv = uint32_t(uv.y * height);
-
-  // wrap coordinates
-  iu %= width;
-  iv %= height;
-
-  // Sample texel
-  uint32_t offset = (iu + iv * width);
-  uint32_t texel = pixels[offset];
+  uint32_t iu = uint32_t(uv.x * width) % width;
+  uint32_t iv = uint32_t(uv.y * height) % height;
+  uint32_t texel = pixels[iu + iv * width];
   return RGB8toRGB32F(texel);
+}
+
+// Texels are packed as 0xAARRGGBB; returns the alpha byte (0 = transparent, 255 = opaque).
+inline uint8_t texSampleAlpha(const float2_t &uv, const uint32_t *pixels, uint32_t width, uint32_t height) {
+  uint32_t iu = uint32_t(uv.x * width) % width;
+  uint32_t iv = uint32_t(uv.y * height) % height;
+  return (uint8_t)((pixels[iu + iv * width] >> 24) & 0xFF);
 }
 
 inline float3_t diffuseLighting(const float3_t& pixel,

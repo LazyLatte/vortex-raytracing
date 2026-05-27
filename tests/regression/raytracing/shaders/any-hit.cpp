@@ -1,4 +1,4 @@
-#include "shader.h"
+#include "chestnut.h"
 #include <vx_spawn.h>
 #include <vx_print.h>
 #include <vx_raytrace.h>
@@ -10,14 +10,12 @@ void _start(kernel_arg_t *arg){
     ray_payload_t *payload = reinterpret_cast<ray_payload_t*>(payload_addr);
 
     uint32_t geometry_idx = vortex::rt::get_attr<VX_RT_HIT_GEOMETRY_INDEX>();
-    uint32_t shader_record_stride = payload->shader_record_stride;
-    uint32_t shader_record_offset = payload->shader_record_offset;
-    uint32_t shader_idx = geometry_idx * shader_record_stride + shader_record_offset;
 
-    switch(shader_idx){
-        case 0: break;
-        case 1: break;
+    switch(geometry_idx){
+        case Geomrtry::Chestnut:
+            Shader::Chestnut::AHS(payload, arg);
+            break;
         default: break;
-    }    
+    }
 }
 }
