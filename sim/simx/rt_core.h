@@ -143,7 +143,10 @@ struct BoxHit {
     }
 };
 
+#if RT_STACK_SIZE > 0
 typedef ShortStack<uint32_t, RT_STACK_SIZE> TraversalStack;
+#endif
+
 typedef std::array<uint32_t, MAX_TRAIL_LEVEL> TraversalTrail; //trail[i]: 0 ~ BVH_WIDTH
 
 enum TraversalStatus { TRACE, FINISHED, RESTART, INSTANCE_HIT, TRI_LEAF_HIT, PROCEDURAL_LEAF_HIT };
@@ -153,8 +156,12 @@ struct TraversalState {
     Hit best_hit;
     Hit prim_hit[RT_BOX_INTERSECTION_WIDTH];
     TraversalTrail trail;
+#if RT_STACK_SIZE > 0
     TraversalStack stack;
+#endif
     TraversalStatus status;
+    uint32_t node_ptr;
+
     uint32_t root_ptr;
     uint32_t root_level;
     uint32_t level;
@@ -171,6 +178,7 @@ struct TraversalState {
     TraversalState()
         : trail({})
         , status(TraversalStatus::TRACE)
+        , node_ptr(0)
         , root_ptr(0)
         , root_level(0)
         , level(0)
@@ -184,6 +192,7 @@ struct TraversalState {
         , best_hit(_tmax)
         , trail({})
         , status(TraversalStatus::TRACE)
+        , node_ptr(_root_ptr)
         , root_ptr(_root_ptr)
         , root_level(0)
         , level(0)
@@ -202,12 +211,12 @@ struct TraversalState {
         return -1;
     }
 
-    uint32_t pop(){
+    void pop(){
         int32_t parentLevel = findNextParentLevel();
 
         if(parentLevel < 0){
             status = TraversalStatus::FINISHED;
-            return 0;
+            return;
         }
 
         trail[parentLevel]++;
@@ -216,13 +225,14 @@ struct TraversalState {
             trail[i] = 0;
         }
 
+    #if RT_STACK_SIZE > 0
         if(stack.empty()){
             status = TraversalStatus::RESTART;
-            return 0;
+            return;
         }
 
         uint32_t e = stack.pop();
-        uint32_t node_ptr = e & 0xFFFFFFFE;
+        node_ptr = e & 0xFFFFFFFE;
 
         if(e & 1){
             trail[parentLevel] = RT_BVH_WIDTH;
@@ -230,8 +240,9 @@ struct TraversalState {
 
         level = parentLevel + 1;
         status = TraversalStatus::TRACE;
-        
-        return node_ptr;
+    #else
+        status = TraversalStatus::RESTART;
+    #endif
     }
 
     bool has_prim_hit(){

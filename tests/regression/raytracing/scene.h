@@ -21,6 +21,7 @@ public:
   const auto &blas_nodes() const { return blas_nodes_; }
   const auto &cwbvh_nodes() const { return cwbvh_nodes_; }
   const auto &aabb_buf() const { return aabb_buf_; }
+  const auto &shape_buf() const { return shape_buf_; }
   const auto &tri_buf() const { return tri_buf_; }
   const auto &triEx_buf() const { return triEx_buf_; }
   const auto &triIdx_buf() const { return triIdx_buf_; }
@@ -39,7 +40,7 @@ public:
 
 private:
   void compressTLAS();
-  void compressBLAS(BVH* bvh, uint32_t tri_offset, uint32_t geometryIndex, bool opaque);
+  void compressBLAS(BVH* bvh, uint32_t tri_offset, uint32_t geometryIndex, bool opaque, bool procedural = false);
   void linearizeData();
 
   std::vector<Mesh *> meshes_;
@@ -58,4 +59,5 @@ private:
   std::vector<material_info_t> mat_buf_;
 
   std::vector<AABB> aabb_buf_;
+  std::vector<shape_t> shape_buf_;
 };

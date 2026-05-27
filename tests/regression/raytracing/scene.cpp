@@ -1,4 +1,5 @@
 #include "scene.h"
+#include "utils.h"
 
 Scene::Scene(const std::vector<Mesh*> &meshes)
   : meshes_(meshes), bvh_list_(meshes.size(), nullptr)
@@ -40,6 +41,7 @@ int Scene::init() {
   blas_nodes_.resize(meshes_.size());
 
   aabb_buf_.resize(num_tris);
+  shape_buf_.resize(num_tris);
 
   // create BVH objects
   uint32_t bvh_offset = 0;
@@ -53,6 +55,7 @@ int Scene::init() {
 
     std::copy(mesh->tri().begin(), mesh->tri().end(), tri_buf_.begin() + tri_offset);
     std::copy(mesh->triEx().begin(), mesh->triEx().end(), triEx_buf_.begin() + tri_offset);
+    std::copy(mesh->shapes().begin(), mesh->shapes().end(), shape_buf_.begin() + tri_offset);
 
     for (uint32_t j = 0; j < tri_count; ++j) {
       triEx_buf_[tri_offset + j].texId += mat_offset;
@@ -79,25 +82,41 @@ int Scene::init() {
       mat_buf_[mat_offset + m] = mat;
     }
 
-    for (uint32_t j = 0; j < tri_count; ++j) {
-      auto &tri = tri_buf_[tri_offset + j];
-      triIdx_buf_[tri_offset + j] = tri_offset + j;
-      centroids_[tri_offset + j] = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+    if (mesh->isProcedural()) {
+      // Procedural mesh: build AABB buf from mesh's pre-computed AABBs, derive centroids from them.
+      std::copy(mesh->aabbs().begin(), mesh->aabbs().end(), aabb_buf_.begin() + tri_offset);
+      for (uint32_t j = 0; j < tri_count; ++j) {
+        triIdx_buf_[tri_offset + j] = tri_offset + j;
+        const auto &aabb = aabb_buf_[tri_offset + j];
+        centroids_[tri_offset + j] = (aabb.bmin + aabb.bmax) * 0.5f;
+      }
+    } else {
+      for (uint32_t j = 0; j < tri_count; ++j) {
+        auto &tri = tri_buf_[tri_offset + j];
+        triIdx_buf_[tri_offset + j] = tri_offset + j;
+        centroids_[tri_offset + j] = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+        aabb_buf_[tri_offset + j] = AABB(tri);
+      }
     }
 
     // setup blas node
     auto &blas_node = blas_nodes_.at(i);
     blas_node.bvh_offset = bvh_offset;
     blas_node.mat_offset = mat_offset;
-    blas_node.transform = mat4_t::Identity();
-    blas_node.invTransform = mat4_t::Identity();
+    blas_node.transform = mesh->getTransform();
+    blas_node.invTransform = mesh->getTransform().inverted();
     // create BVH
 
-    auto bvh = new BVH(tri_buf_.data(), centroids_.data(), tri_count, bvh_nodes_.data() + bvh_offset, triIdx_buf_.data() + tri_offset);
+    BVH *bvh;
+    if (mesh->isProcedural()) {
+      bvh = new BVH(aabb_buf_.data(), centroids_.data(), tri_count, bvh_nodes_.data() + bvh_offset, triIdx_buf_.data() + tri_offset);
+    } else {
+      bvh = new BVH(tri_buf_.data(), centroids_.data(), tri_count, bvh_nodes_.data() + bvh_offset, triIdx_buf_.data() + tri_offset);
+    }
+    
+    std::cout << "BVH " << i << " Built ... (#node=" << bvh->nodeCount() << ", depth=" << max_depth(bvh->nodes(), 0) + 1 << ")" << std::endl;
 
-    std::cout << "BVH " << i << " Built ... (#node=" << bvh->nodeCount() << ")" << std::endl;
-
-    this->compressBLAS(bvh, tri_offset, mesh->getGeometryIndex(), mesh->isOpaque());
+    this->compressBLAS(bvh, tri_offset, mesh->getGeometryIndex(), mesh->isOpaque(), mesh->isProcedural());
 
     // update offsets
     bvh_offset += bvh->nodeCount();
@@ -160,7 +179,7 @@ void Scene::compressTLAS(){
   
 }
 
-void Scene::compressBLAS(BVH* bvh, uint32_t tri_offset, uint32_t geometryIndex, bool opaque){
+void Scene::compressBLAS(BVH* bvh, uint32_t tri_offset, uint32_t geometryIndex, bool opaque, bool procedural){
   bvh_node_t* bvh_nodes = bvh->nodes();
 
   for(int i=0; i<bvh->nodeCount(); i++){
@@ -199,8 +218,7 @@ void Scene::compressBLAS(BVH* bvh, uint32_t tri_offset, uint32_t geometryIndex, 
         cwNode.internal.children[k] = qChild;
       }
     }else{
-      cwNode.type = TRIANGLE_LEAF;
-      //cwNode.type = PROCEDURAL_LEAF;
+      cwNode.type = procedural ? PROCEDURAL_LEAF : TRIANGLE_LEAF;
       cwNode.leaf.flags = opaque ? OPAQUE : NON_OPAQUE;
       cwNode.leaf.geometryIndex = geometryIndex;
       cwNode.leaf.primCount = node.triCount;
@@ -216,19 +234,24 @@ void Scene::linearizeData(){
   std::vector<tri_t> sortedTriData(num_tris);
   std::vector<tri_ex_t> sortedTriEx(num_tris);
   std::vector<float3_t> sortedCentroids(num_tris);
+  std::vector<shape_t> sortedShapes(num_tris);
+
+  std::vector<AABB> sortedAABBs(num_tris);
 
   for (uint32_t i = 0; i < num_tris; i++) {
     uint32_t triIdx = triIdx_buf_[i];
-    sortedTriData[i] = tri_buf_[triIdx];
-    sortedTriEx[i] = triEx_buf_[triIdx];
+    sortedTriData[i]  = tri_buf_[triIdx];
+    sortedTriEx[i]    = triEx_buf_[triIdx];
     sortedCentroids[i] = centroids_[triIdx];
-
-    aabb_buf_[i] = AABB(tri_buf_[triIdx]);
+    sortedShapes[i]   = shape_buf_[triIdx];
+    sortedAABBs[i]    = aabb_buf_[triIdx];
   }
 
   std::copy(sortedTriData.begin(), sortedTriData.end(), tri_buf_.data());
   std::copy(sortedTriEx.begin(), sortedTriEx.end(), triEx_buf_.data());
   std::copy(sortedCentroids.begin(), sortedCentroids.end(), centroids_.data());
+  std::copy(sortedShapes.begin(), sortedShapes.end(), shape_buf_.data());
+  std::copy(sortedAABBs.begin(), sortedAABBs.end(), aabb_buf_.data());
 }
 
 void Scene::applyTransform(const mat4_t &transform) {
@@ -240,5 +263,6 @@ void Scene::applyTransform(const mat4_t &transform) {
 void Scene::build() {
   // build TLAS
   tlas_->build();
+  std::cout << "TLAS Built ... (#node=" << tlas_->nodes().size() << ", depth=" << max_depth(tlas_->nodes(), 0) + 1 << ")" << std::endl;
   this->compressTLAS();
 }

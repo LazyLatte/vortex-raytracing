@@ -1,6 +1,9 @@
+#include "sphere.h"
 #include "cornellbox.h"
+#include "bunny.h"
 #include "sponza.h"
 #include "spring.h"
+#include "rtiow.h"
 #include <vx_spawn.h>
 #include <vx_print.h>
 #include <vx_raytrace.h>
@@ -15,17 +18,26 @@ void _start(kernel_arg_t *arg){
     uint32_t geometry_idx = vortex::rt::get_attr<VX_RT_HIT_GEOMETRY_INDEX>();
     uint32_t shader_record_stride = payload->shader_record_stride;
     uint32_t shader_record_offset = payload->shader_record_offset;
-    uint32_t shader_idx = geometry_idx * shader_record_stride + shader_record_offset;
+    uint32_t shader_idx = geometry_idx;// * shader_record_stride + shader_record_offset;
 
     switch(shader_idx){
-        case 0: // CornellBox
+        case Geomrtry::Sphere: // Sphere
+            Shader::Sphere::CHS(payload, arg);
+            break;
+        case Geomrtry::CornellBox: // CornellBox
             Shader::CornellBox::CHS(payload, arg);
             break;
-        case 1: // Sponza
+        case Geomrtry::Bunny: // Bunny
+            Shader::Bunny::CHS(payload, arg);
+            break;
+        case Geomrtry::Sponza: // Sponza
             Shader::Sponza::CHS(payload, arg);
             break;
-        case 2: // Spring
+        case Geomrtry::Spring: // Spring
             Shader::Spring::CHS(payload, arg);
+            break;
+        case Geomrtry::RtInOneWeekend: // RtInOneWeekend
+            Shader::RtInOneWeekend::CHS(payload, arg);
             break;
         default: break;
     }

@@ -9,7 +9,11 @@
 class SceneList final {
 public:
     static Scene* CornellBox();
+    static Scene* Bunny();
     static Scene* Sponza();
+    static Scene* Carnival();
     static Scene* Spring();
+    static Scene* RtInOneWeekend();
+    static Scene* RtInOneWeekendProc();
 	static const std::vector<std::pair<std::string, std::function<Scene* (void)>>> AllScenes;
 };

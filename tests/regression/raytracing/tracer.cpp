@@ -54,6 +54,7 @@ Tracer::~Tracer() {
   vx_mem_free(blasBuffer_);
   vx_mem_free(bvhBuffer_);
 
+  vx_mem_free(shapeBuffer_);
   vx_mem_free(sbtBuffer_);
   vx_mem_free(rMiss_buffer_);
   vx_mem_free(rchit_buffer_);
@@ -108,6 +109,12 @@ int Tracer::init(const char *kernel_file, uint32_t scene_id) {
     RT_CHECK(vx_mem_alloc(device_, scene_->aabb_buf().size() * sizeof(AABB), VX_MEM_READ, &aabbBuffer_));
     RT_CHECK(vx_mem_address(aabbBuffer_, &kernel_arg_.aabb_addr));
   }
+
+  // allocate shape buffer
+  if (scene_->shape_buf().size() > 0) {
+    RT_CHECK(vx_mem_alloc(device_, scene_->shape_buf().size() * sizeof(shape_t), VX_MEM_READ, &shapeBuffer_));
+    RT_CHECK(vx_mem_address(shapeBuffer_, &kernel_arg_.shape_addr));
+  }
   
   // allocate mat buffer
   if(scene_->mat_buf().size() > 0){
@@ -134,12 +141,8 @@ int Tracer::init(const char *kernel_file, uint32_t scene_id) {
 
 int Tracer::setup() {
 
-  // transform BVH instances
-  scene_->applyTransform(scene_->scene_transform);
-
   // build the scene
   scene_->build();
-  // kernel_arg_.tlas_root = scene_->tlas_root();
 
   // setup Camera
   {
@@ -174,6 +177,10 @@ int Tracer::setup() {
   // upload AABB data
   if(scene_->aabb_buf().size() > 0)
     RT_CHECK(vx_copy_to_dev(aabbBuffer_, scene_->aabb_buf().data(), 0, scene_->aabb_buf().size() * sizeof(AABB)));
+
+  // upload shape data
+  if (scene_->shape_buf().size() > 0)
+    RT_CHECK(vx_copy_to_dev(shapeBuffer_, scene_->shape_buf().data(), 0, scene_->shape_buf().size() * sizeof(shape_t)));
 
   // upload mat data
   if(scene_->mat_buf().size() > 0)

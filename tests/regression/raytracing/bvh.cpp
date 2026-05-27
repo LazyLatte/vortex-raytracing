@@ -1,6 +1,5 @@
 #include "bvh.h"
 #include "kdtree.h"
-#include "utils.h"
 #include <utility>
 #include <cmath>
 #include <iostream>
@@ -11,14 +10,21 @@
 // BVH class implementation
 
 BVH::BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t *bvh_nodes, uint32_t *triIndices) {
-  bvhNodes_ = bvh_nodes;
-  centroids_ = centroids;
-  triCount_ = triCount;
-  triData_ = triData;
+  bvhNodes_   = bvh_nodes;
+  centroids_  = centroids;
+  triCount_   = triCount;
+  triData_    = triData;
   triIndices_ = triIndices;
   this->build();
-  std::cout << "BVH Height: " << max_depth(bvhNodes_, 0) << std::endl;
-  //visualize(bvhNodes_);
+}
+
+BVH::BVH(AABB *aabbData, float3_t *centroids, uint32_t count, bvh_node_t *bvh_nodes, uint32_t *indices) {
+  bvhNodes_   = bvh_nodes;
+  centroids_  = centroids;
+  triCount_   = count;
+  aabbData_   = aabbData;
+  triIndices_ = indices;
+  this->build();
 }
 
 BVH::~BVH() {}
@@ -162,15 +168,21 @@ Split BVH::findBestSplitPlane(const bvh_node_t &node) const {
 
     for (uint32_t i = 0; i < node.triCount; i++) {
       uint32_t triIdx = triIndices_[node.leftFirst + i];
-      auto &triangle = triData_[triIdx];
       auto &centroid = centroids_[triIdx];
       int binIdx = (int)((centroid[a] - boundsMin) * scale);
       binIdx = std::max(0, std::min((int)BINS - 1, binIdx));
 
       bin[binIdx].triCount++;
-      bin[binIdx].bounds.grow(triangle.v0);
-      bin[binIdx].bounds.grow(triangle.v1);
-      bin[binIdx].bounds.grow(triangle.v2);
+      if (aabbData_) {
+        auto &aabb = aabbData_[triIdx];
+        bin[binIdx].bounds.grow(aabb.bmin);
+        bin[binIdx].bounds.grow(aabb.bmax);
+      } else {
+        auto &tri = triData_[triIdx];
+        bin[binIdx].bounds.grow(tri.v0);
+        bin[binIdx].bounds.grow(tri.v1);
+        bin[binIdx].bounds.grow(tri.v2);
+      }
       
     }
 
@@ -205,13 +217,19 @@ void BVH::updateNodeBounds(bvh_node_t &node) const {
   auto centroid_max = float3_t(-LARGE_FLOAT);
   for (uint32_t first = node.leftFirst, i = 0; i < node.triCount; i++) {
     uint32_t triIdx = triIndices_[first + i];
-    auto &tri = triData_[triIdx];
-    node.aabbMin = fminf(node.aabbMin, tri.v0);
-    node.aabbMin = fminf(node.aabbMin, tri.v1);
-    node.aabbMin = fminf(node.aabbMin, tri.v2);
-    node.aabbMax = fmaxf(node.aabbMax, tri.v0);
-    node.aabbMax = fmaxf(node.aabbMax, tri.v1);
-    node.aabbMax = fmaxf(node.aabbMax, tri.v2);
+    if (aabbData_) {
+      auto &aabb = aabbData_[triIdx];
+      node.aabbMin = fminf(node.aabbMin, aabb.bmin);
+      node.aabbMax = fmaxf(node.aabbMax, aabb.bmax);
+    } else {
+      auto &tri = triData_[triIdx];
+      node.aabbMin = fminf(node.aabbMin, tri.v0);
+      node.aabbMin = fminf(node.aabbMin, tri.v1);
+      node.aabbMin = fminf(node.aabbMin, tri.v2);
+      node.aabbMax = fmaxf(node.aabbMax, tri.v0);
+      node.aabbMax = fmaxf(node.aabbMax, tri.v1);
+      node.aabbMax = fmaxf(node.aabbMax, tri.v2);
+    }
     auto &centroid = centroids_[triIdx];
     centroid_min = fminf(centroid_min, centroid);
     centroid_max = fmaxf(centroid_max, centroid);

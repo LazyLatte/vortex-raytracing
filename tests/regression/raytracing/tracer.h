@@ -35,6 +35,7 @@ private:
   vx_buffer_h blasBuffer_ = nullptr;    // store BLAS nodes
   vx_buffer_h bvhBuffer_ = nullptr;     // store CW-BVH nodes
   vx_buffer_h aabbBuffer_ = nullptr;    // store AABBs of Procedural Primitives
+  vx_buffer_h shapeBuffer_ = nullptr;   // store shape geometry for procedural primitives
 
   vx_buffer_h sbtBuffer_ = nullptr;
   vx_buffer_h rMiss_buffer_ = nullptr;

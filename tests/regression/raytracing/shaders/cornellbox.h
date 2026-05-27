@@ -5,59 +5,59 @@
 namespace Shader {
 namespace CornellBox {
 
-inline void CHS(ray_payload_t *payload, kernel_arg_t *arg){
+inline void CHS(ray_payload_t *payload, kernel_arg_t *arg) {
     uint32_t _t = vortex::rt::get_attr<VX_RT_HIT_T>();
     uint32_t _u = vortex::rt::get_attr<VX_RT_HIT_ATTR_U>();
     uint32_t _v = vortex::rt::get_attr<VX_RT_HIT_ATTR_V>();
-    uint32_t instanceID = vortex::rt::get_attr<VX_RT_HIT_INSTANCE_ID>();
+    uint32_t instanceID  = vortex::rt::get_attr<VX_RT_HIT_INSTANCE_ID>();
     uint32_t primitiveID = vortex::rt::get_attr<VX_RT_HIT_PRIMITIVE_ID>();
 
     float t  = *reinterpret_cast<float*>(&_t);
     float bx = *reinterpret_cast<float*>(&_u);
     float by = *reinterpret_cast<float*>(&_v);
-    float bz = 1 - bx - by;
+    float bz = 1.0f - bx - by;
 
     auto triEx_ptr = reinterpret_cast<const tri_ex_t *>(arg->triEx_addr);
     const tri_ex_t &triEx = triEx_ptr[primitiveID];
 
     auto blas_ptr = reinterpret_cast<const blas_node_t *>(arg->blas_addr);
-    auto &blas = blas_ptr[instanceID];
+    const blas_node_t &blas = blas_ptr[instanceID];
 
-    // intersection point
     float3_t I = payload->origin + payload->direction * t;
 
-    // interpolated, transformed normal
     float3_t N = triEx.N1 * bx + triEx.N2 * by + triEx.N0 * bz;
     mat4_t invTranspose = blas.invTransform.transposed();
     N = normalize(TransformVector(N, invTranspose));
 
-    // barycentric UV
-    float2_t uv = triEx.uv1 * bx + triEx.uv2 * by + triEx.uv0 * bz;
-
-    float3_t albedo;
     auto mat_ptr = reinterpret_cast<const material_info_t *>(arg->mat_addr);
     const material_info_t &mat = mat_ptr[triEx.texId];
 
-    if (mat.diffuse_tex_id >= 0) {
-        auto tex_ptr = reinterpret_cast<const uint8_t *>(arg->tex_addr);
-        auto tex_pixels = reinterpret_cast<const uint32_t*>(tex_ptr + mat.tex_offset);
-        albedo = texSample(uv, tex_pixels, mat.tex_width, mat.tex_height);
-    } else {
-        albedo = mat.diffuse;
+    // Emissive surfaces (area light) — terminate path and collect emission
+    if (mat.emissive.x > 0.0f || mat.emissive.y > 0.0f || mat.emissive.z > 0.0f) {
+        payload->irradiance += payload->throughput * mat.emissive;
+        payload->stop = true;
+        return;
     }
 
-    float3_t lightPos = float3_t(-0.235, 1.88, 0.19); 
-    float3_t L = normalize(lightPos - I);
+    // Diffuse albedo
+    float3_t albedo = mat.diffuse;
 
-    float dotNL = dot(N, L);
-    float diffuse = std::max(dotNL, 0.0f);
+    {
+        float3_t L = normalize(arg->light_pos - I);
+        float NdotL = std::max(dot(N, L), 0.0f);
+        payload->irradiance += payload->throughput * albedo * (NdotL + 0.2f);
+    }
 
-    float shadow = 1.0f;
-    float ambientStrength = 0.2f;
-    float3_t lighting = albedo * (diffuse * shadow + ambientStrength);
+    // Trig-free cosine-weighted Lambertian scatter for indirect bounces
+    uint32_t seed = WangHash(_t ^ (primitiveID * 2654435761u) ^ (payload->bounce * 1664525u + 1013904223u));
+    float3_t scattered = cosineSampleHemisphere(N, seed);
 
-    payload->irradiance = lighting;
-    payload->stop = true; 
+    payload->throughput = payload->throughput * albedo;
+
+    payload->origin    = I + N * 1e-4f;
+    payload->direction = scattered;
+    payload->bounce++;
+    payload->stop = false;
 }
 
 }

@@ -50,6 +50,7 @@ struct Split{
 class BVH {
 public:
   BVH(tri_t *triData, float3_t *centroids, uint32_t triCount, bvh_node_t* bvh_nodes, uint32_t *triIndices);
+  BVH(AABB *aabbData, float3_t *centroids, uint32_t count, bvh_node_t* bvh_nodes, uint32_t *indices);
   ~BVH();
 
   auto &aabbMin() const { return bvhNodes_[0].aabbMin; }
@@ -69,10 +70,11 @@ private:
   uint32_t partitionTriangles(const bvh_node_t &node, const Split &split) const;
   Split findBestSplitPlane(const bvh_node_t &node) const;
 
-  uint32_t triCount_ = 0;        // number of triangles
-  tri_t *triData_ = nullptr; // pointer to mesh vertices
-  float3_t *centroids_ = nullptr; // triangle centroids
-  uint32_t *triIndices_ = nullptr; // triangle indices
+  uint32_t triCount_ = 0;
+  tri_t   *triData_   = nullptr;
+  AABB    *aabbData_  = nullptr;
+  float3_t *centroids_ = nullptr;
+  uint32_t *triIndices_ = nullptr;
   bvh_node_t *bvhNodes_ = nullptr;
   
   uint32_t nodeCount_ = 0;

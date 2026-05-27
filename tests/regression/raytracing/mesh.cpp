@@ -8,7 +8,11 @@
 #include <filesystem>
 #include <unordered_map>
 
-Mesh::Mesh(const std::filesystem::path& objFile, uint32_t geometry_idx, bool opaque): geometry_idx(geometry_idx), opaque_(opaque){
+Mesh::Mesh(const std::filesystem::path& objFile, uint32_t geometry_idx, bool opaque)
+: geometry_idx(geometry_idx)
+, opaque_(opaque)
+, transform(mat4_t::Identity())
+{
     tinyobj::ObjReaderConfig reader_config;
     reader_config.mtl_search_path = objFile.parent_path().string();
     reader_config.triangulate = true;
@@ -142,6 +146,46 @@ Mesh::Mesh(const std::filesystem::path& objFile, uint32_t geometry_idx, bool opa
             index_offset += 3;
         }
     }
+}
+
+Mesh::Mesh(tri_t tri, tri_ex_t triEx, material_info_t mat, uint32_t geometry_idx)
+    : geometry_idx(geometry_idx), opaque_(true), procedural_(true) {
+    tri_.push_back(tri);
+    triEx_.push_back(triEx);
+    materials_.push_back(mat);
+}
+
+Mesh* Mesh::CreateSphere(float3_t center, float radius, float3_t color, uint32_t geometry_idx) {
+    // Fake tri_t so the BVH builder gets exact AABB bounds and centroid:
+    //   v0 = center - r  → AABB min
+    //   v1 = center      → centroid: (v0+v1+v2)/3 = center
+    //   v2 = center + r  → AABB max
+    tri_t tri;
+    tri.v0 = center - float3_t(radius);
+    tri.v1 = center;
+    tri.v2 = center + float3_t(radius);
+
+    tri_ex_t triEx{};
+    triEx.texId = 0;
+
+    material_info_t mat{};
+    mat.diffuse        = color;
+    mat.diffuse_tex_id = -1;
+
+    auto* mesh = new Mesh(tri, triEx, mat, geometry_idx);
+
+    shape_t shape{};
+    shape.center = center;
+    shape.radius = radius;
+    //shape.type   = static_cast<uint32_t>(ShapeType::Sphere);
+    mesh->shapes_.push_back(shape);
+
+    AABB aabb{};
+    aabb.bmin = center - float3_t(radius);
+    aabb.bmax = center + float3_t(radius);
+    mesh->aabbs_.push_back(aabb);
+
+    return mesh;
 }
 
 std::vector<Surface*> Mesh::textures() const {

@@ -25,6 +25,20 @@ uint32_t max_depth(bvh_node_t* bvhBuffer, uint32_t idx) {
     return md + 1;
 }
 
+uint32_t max_depth(const std::vector<tlas_node_t>& tlasBuffer, uint32_t idx) {
+    const tlas_node_t& node = tlasBuffer[idx];
+    if(node.isLeaf()) return 0;
+
+    uint32_t md = 0;
+    for(uint32_t i=0; i<BVH_WIDTH; i++){
+        if(i < node.childCount){
+            uint32_t d = max_depth(tlasBuffer, node.leftFirst + i);
+            md = std::max(md, d);
+        }
+    }
+    return md + 1;
+}
+
 std::string hslToHex(float h, float s, float l) {
     auto hue2rgb = [](float p, float q, float t) {
         if(t < 0) t += 1.0f;

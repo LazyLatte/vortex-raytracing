@@ -47,6 +47,10 @@ public:
   explicit Mesh(const std::filesystem::path& objFile, uint32_t geometry_idx, bool opaque = true);
   ~Mesh() = default;
 
+  // Creates a single procedural sphere primitive encoded as one tri_t entry.
+  // v0 = center−r, v1 = center, v2 = center+r gives exact BVH bounds and centroid.
+  static Mesh* CreateSphere(float3_t center, float radius, float3_t color, uint32_t geometry_idx);
+
   Mesh(const Mesh&) = delete;
   Mesh& operator=(const Mesh&) = delete;
 
@@ -56,9 +60,12 @@ public:
   const std::vector<tri_t>& tri() const { return tri_; }
   const std::vector<tri_ex_t>& triEx() const { return triEx_; }
   const std::vector<material_info_t>& materials() const { return materials_; }
+  const std::vector<shape_t>& shapes() const { return shapes_; }
+  const std::vector<AABB>& aabbs() const { return aabbs_; }
   std::vector<Surface*> textures() const;
 
   bool isOpaque() const { return opaque_; };
+  bool isProcedural() const { return procedural_; }
   uint32_t getGeometryIndex() const { return geometry_idx; }
 
   void setAllDiffuse(float3_t color) {
@@ -70,12 +77,25 @@ public:
     }
   }
 
+  void setTransform(const mat4_t& T){
+    this->transform = T;
+  }
+
+  mat4_t getTransform() const {return this->transform; }
+
 private:
   std::vector<tri_t> tri_;
   std::vector<tri_ex_t> triEx_;
   std::vector<material_info_t> materials_;
   std::vector<std::unique_ptr<Surface>> textures_;
+  std::vector<shape_t> shapes_;
+  std::vector<AABB> aabbs_;
 
+  // Private ctor used by CreateSphere.
+  Mesh(tri_t tri, tri_ex_t triEx, material_info_t mat, uint32_t geometry_idx);
+
+  mat4_t transform;
   uint32_t geometry_idx;
-  bool opaque_;
+  bool opaque_    = true;
+  bool procedural_ = false;
 };

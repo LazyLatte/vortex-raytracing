@@ -18,7 +18,22 @@
 #define BVH_WIDTH 6
 #define MAX_LEAF_PRIMITIVES 1
 
-enum Geomrtry {CornellBox = 0, Sponza = 1, Spring = 2};
+enum Geomrtry : uint32_t {
+  Sphere = 0, 
+  CornellBox = 1, 
+  Bunny = 2,
+  Sponza = 3, 
+  Spring = 4, 
+  RtInOneWeekend = 5
+};
+
+//enum ShapeType : uint32_t { Sphere = 0 };
+
+struct shape_t {
+  float3_t center;
+  float    radius;
+  //uint32_t type;   // ShapeType
+};
 
 struct material_info_t {
   float3_t ambient;
@@ -151,6 +166,18 @@ inline float RandomFloat(uint32_t *s) {
   return RandomInt(s) * 2.3283064365387e-10f; // = 1 / (2^32-1)
 }
 
+// Per-channel Reinhard: maps [0, ∞) → [0, 1) without hard clipping.
+inline float3_t reinhardTonemap(float3_t c) {
+  return float3_t(c.x / (1.0f + c.x),
+                  c.y / (1.0f + c.y),
+                  c.z / (1.0f + c.z));
+}
+
+// Gamma correction using sqrtf (≈ γ 2.0, GPU-safe — avoids powf).
+inline float3_t gammaCorrect(float3_t c) {
+  return float3_t(sqrtf(c.x), sqrtf(c.y), sqrtf(c.z));
+}
+
 inline uint32_t RGB32FtoRGB8(float3_t c) {
   int r = (int)(std::min(c.x, 1.f) * 255);
   int g = (int)(std::min(c.y, 1.f) * 255);
@@ -172,6 +199,7 @@ typedef struct {
   uint64_t dst_addr;
 
   uint64_t aabb_addr;
+  uint64_t shape_addr;
 	uint64_t tri_addr;
 	uint64_t triEx_addr;
 	uint64_t triIdx_addr;

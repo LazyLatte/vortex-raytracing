@@ -1,4 +1,4 @@
-#include "sponza.h"
+#include "sphere.h"
 #include <vx_spawn.h>
 #include <vx_print.h>
 #include <vx_raytrace.h>
@@ -12,12 +12,11 @@ void _start(kernel_arg_t *arg){
     uint32_t geometry_idx = vortex::rt::get_attr<VX_RT_HIT_GEOMETRY_INDEX>();
     uint32_t shader_record_stride = payload->shader_record_stride;
     uint32_t shader_record_offset = payload->shader_record_offset;
-    uint32_t shader_idx = geometry_idx * shader_record_stride + shader_record_offset;
+    uint32_t shader_idx = geometry_idx;// * shader_record_stride + shader_record_offset;
 
     switch(shader_idx){
-        case 0: break;
-        case 1: // Sponza
-            Shader::Sponza::IS(arg);
+        case Geomrtry::Sphere: // Sphere
+            Shader::Sphere::IS(arg);
             break;
         default: break;
     }

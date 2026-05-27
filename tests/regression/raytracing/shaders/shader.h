@@ -59,3 +59,22 @@ inline float3_t calcNormal(const tri_t& tri){
 
   return normalize(cross(edge1, edge2));
 }
+
+// Cosine-weighted hemisphere direction around N.
+// Uses only sqrtf — no sinf/cosf — for GPU kernel compatibility.
+// seed is advanced in place; seed must be non-zero (caller ensures seed |= 1u).
+// Monte Carlo weight for Lambertian BRDF (f = albedo/pi) simplifies to albedo.
+inline float3_t cosineSampleHemisphere(const float3_t& N, uint32_t& seed) {
+  seed |= 1u;  // XOR32 loops forever at 0 — guarantee non-zero
+  float x, y, z, sq = 2.0f;
+  for (int i = 0; i < 32 && (sq > 1.0f || sq < 1e-8f); ++i) {
+    x = RandomFloat(&seed) * 2.0f - 1.0f;
+    y = RandomFloat(&seed) * 2.0f - 1.0f;
+    z = RandomFloat(&seed) * 2.0f - 1.0f;
+    sq = x*x + y*y + z*z;
+  }
+  if (sq < 1e-8f || sq > 1.0f) return N;  // fallback — probability < 10^-10
+  float3_t v = float3_t(x, y, z) * (1.0f / sqrtf(sq));
+  if (dot(v, N) < 0.0f) v = -v;
+  return normalize(N + v);
+}
