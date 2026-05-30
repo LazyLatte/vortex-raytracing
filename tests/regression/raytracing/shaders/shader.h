@@ -52,6 +52,20 @@ inline float3_t diffuseLighting(const float3_t& pixel,
 
 inline float3_t reflect(const float3_t& P, const float3_t& N){ return normalize(P - 2.0f * N * dot(N, P)); }
 
+inline float3_t refract(const float3_t& uv, const float3_t& n, float etai_over_etat) {
+    float cos_theta = std::min(dot(-uv, n), 1.0f);
+    float3_t r_perp = (uv + n * cos_theta) * etai_over_etat;
+    float3_t r_par  = n * (-sqrtf(fabsf(1.0f - dot(r_perp, r_perp))));
+    return r_perp + r_par;
+}
+
+// Polynomial approximation by Christophe Schlick
+inline float schlick(float cosine, float refractionIndex) {
+    float r0 = (1.0f - refractionIndex) / (1.0f + refractionIndex);
+    r0 *= r0;
+    return r0 + (1.0f - r0) * powf(1.0f - cosine, 5.0f);
+}
+
 inline float3_t calcNormal(const tri_t& tri){
   float3_t edge1 = tri.v1 - tri.v0;
   float3_t edge2 = tri.v2 - tri.v0;
@@ -63,6 +77,19 @@ inline float3_t calcNormal(const tri_t& tri){
 // Uses only sqrtf — no sinf/cosf — for GPU kernel compatibility.
 // seed is advanced in place; seed must be non-zero (caller ensures seed |= 1u).
 // Monte Carlo weight for Lambertian BRDF (f = albedo/pi) simplifies to albedo.
+// Returns a random vector inside the unit sphere (length <= 1).
+inline float3_t randomInUnitSphere(uint32_t& seed) {
+  seed |= 1u;
+  float x, y, z, sq = 2.0f;
+  for (int i = 0; i < 32 && sq > 1.0f; ++i) {
+    x  = RandomFloat(&seed) * 2.0f - 1.0f;
+    y  = RandomFloat(&seed) * 2.0f - 1.0f;
+    z  = RandomFloat(&seed) * 2.0f - 1.0f;
+    sq = x*x + y*y + z*z;
+  }
+  return float3_t(x, y, z);
+}
+
 inline float3_t cosineSampleHemisphere(const float3_t& N, uint32_t& seed) {
   seed |= 1u;  // XOR32 loops forever at 0 — guarantee non-zero
   float x, y, z, sq = 2.0f;

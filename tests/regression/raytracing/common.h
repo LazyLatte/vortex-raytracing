@@ -18,14 +18,18 @@
 #define BVH_WIDTH 6
 #define MAX_LEAF_PRIMITIVES 1
 
+enum MaterialModel : int {
+  MaterialLambertian  = 0,
+  MaterialMetallic    = 1,
+  MaterialDielectric  = 2,
+};
+
 enum Geomrtry : uint32_t {
   Sphere = 0, 
   CornellBox = 1, 
   Bunny = 2,
   Sponza = 3, 
-  Spring = 4,
-  RtInOneWeekend = 5,
-  Chestnut = 6
+  Chestnut = 4
 };
 
 //enum ShapeType : uint32_t { Sphere = 0 };

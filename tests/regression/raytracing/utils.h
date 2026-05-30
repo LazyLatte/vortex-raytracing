@@ -119,3 +119,36 @@ void visualize(bvh_node_t* root, const std::string& filename) {
     out.close();
     std::cout << "DOT file written to " << filename << std::endl;
 }
+
+std::string nodeName(const tlas_node_t* node) {
+    return "node" + std::to_string(reinterpret_cast<uintptr_t>(node));
+}
+
+void exportDOT(const std::vector<tlas_node_t>& tlasBuffer, uint32_t rootIdx, std::ofstream& out, const std::vector<std::string>& colors) {
+    const tlas_node_t &root = tlasBuffer[rootIdx];
+    //std::string color = colors[root.treeletID % colors.size()];
+    std::string color = colors[0];
+    out << "  " << nodeName(&tlasBuffer[rootIdx]) << " [style=filled, fillcolor=\"" << color << "\", label=\"\"];\n";
+
+    if(!root.isLeaf()){
+        uint32_t left = root.leftFirst;
+        for(int i=0; i<BVH_WIDTH; i++){
+            uint32_t childIdx = root.leftFirst + i;
+            if(i < root.childCount){
+                out << "  " << nodeName(&tlasBuffer[rootIdx]) << " -> " << nodeName(&tlasBuffer[childIdx]) << ";\n";
+                exportDOT(tlasBuffer, childIdx, out, colors);
+            }
+        }
+    }
+}
+
+void visualize(const std::vector<tlas_node_t>& tlasBuffer, const std::string& filename) {
+    std::ofstream out(filename);
+    out << "digraph G {\n";
+    out << "  node [shape=circle, fontname=\"Arial\"];\n";
+    std::vector<std::string> colors = generateColorPalette(100); 
+    exportDOT(tlasBuffer, 0, out, colors);
+    out << "}\n";
+    out.close();
+    std::cout << "DOT file written to " << filename << std::endl;
+}

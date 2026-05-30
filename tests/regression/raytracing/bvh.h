@@ -42,7 +42,8 @@ struct AABB {
 };
 
 struct Split{
-  uint32_t axis, pos;
+  uint32_t axis;
+  float pos;
   float cost = std::numeric_limits<float>::infinity();
 };
 
@@ -102,12 +103,6 @@ private:
   void updateNodeBounds(tlas_node_t &node) const;
   void updateTriCount(tlas_node_t &node) const;
   
-  struct Cluster {
-    uint32_t start, end;
-    uint32_t triCount;    // sum of triCounts_ over [start..end]
-    AABB bounds;          // union of tlasNodes_[nodeIndices_[i]] over range
-  };
-
   // Cluster make_cluster(uint32_t start, uint32_t end);
   // tlas_node_t make_tlas_node(uint32_t start, uint32_t end);
   void updateNode(tlas_node_t &node, uint32_t start, uint32_t end);
@@ -116,9 +111,7 @@ private:
 
   std::vector<tlas_node_t> tlasLeaves_;
   std::vector<tlas_node_t> tlasNodes_;
-  //std::vector<cwbvh_node_t> tlasQNodes_;
-  //std::vector<uint32_t> nodeIndices_;
-  //std::vector<uint32_t> triCounts_;
+  std::vector<uint32_t> nodeIndices_;
   uint32_t blasCount_ = 0;
   uint32_t nodeCount_ = 0;
   uint32_t rootIndex_ = 0;

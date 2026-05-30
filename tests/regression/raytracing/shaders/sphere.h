@@ -71,12 +71,45 @@ inline void CHS(ray_payload_t *payload, kernel_arg_t *arg) {
     const material_info_t& mat = mat_ptr[triEx_ptr[primitiveID].texId];
 
     float3_t I = payload->origin + payload->direction * t;
-    float3_t N = normalize(I - shape.center);
+    float3_t outward_N = normalize(I - shape.center);
+    bool front_face = dot(payload->direction, outward_N) < 0.0f;
+    float3_t N = front_face ? outward_N : -outward_N;
 
-    payload->irradiance += payload->throughput * diffuseLighting(
-        I, N, mat.diffuse,
-        arg->ambient_color, arg->light_color, arg->light_pos);
-    payload->stop = true;
+    switch (mat.illum) {
+        case MaterialDielectric: {
+            float3_t unit_dir = normalize(payload->direction);
+            float etai_over_etat = front_face ? (1.0f / mat.ior) : mat.ior;
+            float cos_theta = std::min(dot(-unit_dir, N), 1.0f);
+            float sin_theta = sqrtf(1.0f - cos_theta * cos_theta);
+
+            float3_t new_dir;
+            if (etai_over_etat * sin_theta > 1.0f) {
+                new_dir = reflect(unit_dir, N);
+            } else {
+                new_dir = refract(unit_dir, N, etai_over_etat);
+            }
+
+            payload->origin    = I + new_dir * 1e-4f;
+            payload->direction = new_dir;
+            ++payload->bounce;
+            break;
+        }
+        case MaterialMetallic: {
+            payload->throughput *= mat.diffuse;
+            payload->origin    = I + N * 1e-4f;
+            payload->direction = reflect(normalize(payload->direction), N);
+            ++payload->bounce;
+            break;
+        }
+        default: {
+            // Lambertian
+            payload->irradiance += payload->throughput * diffuseLighting(
+                I, N, mat.diffuse,
+                arg->ambient_color, arg->light_color, arg->light_pos);
+            payload->stop = true;
+            break;
+        }
+    }
 }
 
 } // namespace Sphere

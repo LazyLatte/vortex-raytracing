@@ -77,6 +77,26 @@ public:
     }
   }
 
+  void setAllReflectivity(float r) {
+    for (auto& m : materials_)
+      m.reflectivity = r;
+  }
+
+  void setAllFuzz(float fuzz) {
+    for (auto& m : materials_)
+      m.shininess = fuzz;
+  }
+
+  void setAllIOR(float ior) {
+    for (auto& m : materials_)
+      m.ior = ior;
+  }
+
+  void setAllMaterialModel(int model) {
+    for (auto& m : materials_)
+      m.illum = model;
+  }
+
   void setTransform(const mat4_t& T){
     this->transform = T;
   }

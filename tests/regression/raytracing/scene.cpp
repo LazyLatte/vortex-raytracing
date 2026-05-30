@@ -30,6 +30,7 @@ int Scene::init() {
     }
   }
 
+  std::cout << "Primitive Count: " << num_tris << std::endl;
   // allocate buffers
   tex_buf_.resize(total_texture_size);
   mat_buf_.resize(total_materials);
@@ -264,5 +265,6 @@ void Scene::build() {
   // build TLAS
   tlas_->build();
   std::cout << "TLAS Built ... (#node=" << tlas_->nodes().size() << ", depth=" << max_depth(tlas_->nodes(), 0) + 1 << ")" << std::endl;
+  visualize(tlas_->nodes(), "tlas.dot");
   this->compressTLAS();
 }

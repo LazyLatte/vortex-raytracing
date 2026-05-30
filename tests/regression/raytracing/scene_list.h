@@ -12,9 +12,7 @@ public:
     static Scene* Bunny();
     static Scene* Sponza();
     static Scene* Carnival();
-    static Scene* Spring();
-    static Scene* RtInOneWeekend();
-    static Scene* RtInOneWeekendProc();
     static Scene* Chestnut();
+    static Scene* RayTracingInOneWeekend();
 	static const std::vector<std::pair<std::string, std::function<Scene* (void)>>> AllScenes;
 };

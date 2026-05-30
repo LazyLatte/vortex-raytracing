@@ -2,8 +2,6 @@
 #include "cornellbox.h"
 #include "bunny.h"
 #include "sponza.h"
-#include "spring.h"
-#include "rtiow.h"
 #include "chestnut.h"
 #include <vx_spawn.h>
 #include <vx_print.h>
@@ -33,12 +31,6 @@ void _start(kernel_arg_t *arg){
             break;
         case Geomrtry::Sponza: // Sponza
             Shader::Sponza::CHS(payload, arg);
-            break;
-        case Geomrtry::Spring: // Spring
-            Shader::Spring::CHS(payload, arg);
-            break;
-        case Geomrtry::RtInOneWeekend: // RtInOneWeekend
-            Shader::RtInOneWeekend::CHS(payload, arg);
             break;
         case Geomrtry::Chestnut: // Chestnut
             Shader::Chestnut::CHS(payload, arg);

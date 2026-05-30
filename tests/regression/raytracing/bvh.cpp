@@ -244,14 +244,9 @@ TLAS::TLAS(const std::vector<BVH *> &bvh_list, const blas_node_t *blas_nodes) : 
   blas_nodes_ = blas_nodes;
   blasCount_ = bvh_list.size();
   nodeCount_ = 2 * blasCount_ - 1;
-  // allocate TLAS nodes
   tlasLeaves_.resize(blasCount_);
   tlasNodes_.resize(nodeCount_);
-  //tlasQNodes_.resize(nodeCount_);
-  // nodeIndices_.resize(blasCount_);
-  // triCounts_.resize(blasCount_);
-
-  //nodeIndex_ = blasCount_;
+  nodeIndices_.resize(blasCount_);
 }
 
 TLAS::~TLAS() {
@@ -262,12 +257,11 @@ void TLAS::build() {
   if (blasCount_ == 0)
     return;
 
-  // Initialize leaf nodes
+  // Initialize leaf nodes and index array
   for (uint32_t i = 0; i < blasCount_; ++i) {
     auto &bvh = bvh_list_[i];
     auto &blas_node = blas_nodes_[i];
 
-    // calculate world-space bounds using the new matrix
     auto &aabbMin = bvh->aabbMin();
     auto &aabbMax = bvh->aabbMax();
     AABB bounds;
@@ -278,13 +272,12 @@ void TLAS::build() {
       bounds.grow(TransformPosition(pos, blas_node.transform.toMat4()));
     }
 
-    tlasLeaves_[i].leftFirst = i; // BLAS Index
+    tlasLeaves_[i].leftFirst = i; // BLAS index
     tlasLeaves_[i].aabbMin = bounds.bmin;
     tlasLeaves_[i].aabbMax = bounds.bmax;
     tlasLeaves_[i].triCount = bvh->triCount();
-    tlasLeaves_[i].childCount = 0; // leaf node
-    //triCounts_[i] = bvh->triCount();
-    //nodeIndices_[i] = i;
+    tlasLeaves_[i].childCount = 0;
+    nodeIndices_[i] = i;
   }
 
   tlas_node_t &root = tlasNodes_[nodeIndex_++];
@@ -295,113 +288,92 @@ void TLAS::build() {
 void TLAS::buildRecursive(tlas_node_t &node) {
 
   if (node.start == node.end) {
-    node = tlasLeaves_[node.start];
+    node = tlasLeaves_[nodeIndices_[node.start]];
     return;
   }
 
-  std::vector<tlas_node_t> clusters;
-  clusters.push_back(node);
+  struct ClusterInfo {
+    tlas_node_t node;
+    Split bestSplit;
+    float costReduction;
+  };
 
-  while (clusters.size() < BVH_WIDTH){
-    int bestIdx = -1;
-    Split bestSplit{};
+  auto evaluateCluster = [&](ClusterInfo &c) {
+    if (c.node.start == c.node.end) {
+      c.costReduction = -1.0f; // Cannot split
+      return;
+    }
+    c.bestSplit = findBestSplitPlane(c.node);
+    if (c.bestSplit.cost == std::numeric_limits<float>::infinity()) {
+      c.costReduction = -1.0f;
+    } else {
+      c.costReduction = c.node.calculateNodeCost() - c.bestSplit.cost;
+    }
+  };
+
+  ClusterInfo clusters[BVH_WIDTH];
+  int clusterCount = 0;
+
+  clusters[clusterCount++] = {node, {}, -1.0f};
+  evaluateCluster(clusters[0]);
+
+  while (clusterCount < BVH_WIDTH) {
     float bestDelta = 0.0f;
+    int bestIdx = -1;
 
-    for (int i = 0; i < (int)clusters.size(); ++i) {
-        auto& c = clusters[i];
-        if (c.start == c.end) continue;
-
-        //std::cout << "findBestSplitPlane: " <<c.start << " " << c.end << std::endl;
-        Split s = findBestSplitPlane(c);
-        if (s.cost == std::numeric_limits<float>::infinity())
-            continue;
-
-        float leafCost = c.calculateNodeCost();
-        float delta = leafCost - s.cost; // >0 = good
-        if (delta > bestDelta) {
-            bestDelta = delta;
-            bestSplit = s;
-            bestIdx = i;
-        }
+    for (int i = 0; i < clusterCount; i++) {
+      if (clusters[i].costReduction > bestDelta) {
+        bestDelta = clusters[i].costReduction;
+        bestIdx = i;
+      }
     }
 
-    if (bestIdx < 0) break; // no improving split
+    if (bestIdx < 0) break; // No improving split found across all clusters
 
-    auto& c = clusters[bestIdx];
-    uint32_t mid = partition(c.start, c.end, bestSplit.axis, bestSplit.pos);
+    ClusterInfo best = clusters[bestIdx];
+    uint32_t mid = partition(best.node.start, best.node.end, best.bestSplit.axis, best.bestSplit.pos);
 
-    if (mid < c.start || mid >= c.end) break; // degenerate split → stop
+    if (mid < best.node.start || mid >= best.node.end) break; // degenerate split
 
-    tlas_node_t L, R;
-    updateNode(L, c.start, mid);
-    updateNode(R, mid + 1, c.end);
+    ClusterInfo L, R;
+    updateNode(L.node, best.node.start, mid);
+    updateNode(R.node, mid + 1, best.node.end);
+
+    evaluateCluster(L);
+    evaluateCluster(R);
 
     clusters[bestIdx] = L;
-    clusters.push_back(R);
+    clusters[clusterCount++] = R;
   }
-  //std::cout << clusters.size() << std::endl;
-  uint32_t childIndices[BVH_WIDTH];
-  if (clusters.size() == 1) {
-    childIndices[0] = nodeIndex_++;
-    childIndices[1] = nodeIndex_++;
 
+  if (clusterCount == 1) {
+    // SAH found no improving split; fall back to median split
+    uint32_t childIndices[2] = {nodeIndex_++, nodeIndex_++};
     uint32_t mid = (node.start + node.end) / 2;
-
     tlas_node_t &leftChild  = tlasNodes_[childIndices[0]];
     tlas_node_t &rightChild = tlasNodes_[childIndices[1]];
     updateNode(leftChild, node.start, mid);
-    updateNode(rightChild, mid+1, node.end);
+    updateNode(rightChild, mid + 1, node.end);
     buildRecursive(leftChild);
     buildRecursive(rightChild);
-    //return makeInternalNode({l, r}); // 2-wide
+    node.leftFirst = childIndices[0];
+    node.childCount = 2;
+    return;
+  }
 
-    // Fallback to median split if SAH failed
-    // if (bestSplit.cost == std::numeric_limits<float>::infinity()) {
-    //   bestSplit.axis = (extent.x > extent.y) ? ((extent.x > extent.z) ? 0 : 2) : ((extent.y > extent.z) ? 1 : 2);
-    //   // Compute median centroid along splitAxis
-    //   std::vector<float> centroids;
-    //   for (uint32_t i = start; i <= end; ++i) {
-    //       const auto &node = tlasNodes_[nodeIndices_[i]];
-    //       float centroid = (node.aabbMin[bestSplit.axis] + node.aabbMax[bestSplit.axis]) * 0.5f;
-    //       centroids.push_back(centroid);
-    //   }
-    //   std::sort(centroids.begin(), centroids.end());
-    //   bestSplit.pos = centroids[centroids.size() / 2]; // median
-    // }
-  }else{
-    for(int i=0; i<clusters.size(); i++){
-      childIndices[i] = nodeIndex_++;
-    }
+  uint32_t childIndices[BVH_WIDTH];
+  for (int i = 0; i < clusterCount; i++) {
+    childIndices[i] = nodeIndex_++;
+  }
 
-    for(int i=0; i<clusters.size(); i++){
-      tlas_node_t &child = tlasNodes_[childIndices[i]];
-      updateNode(child, clusters[i].start, clusters[i].end);
-      buildRecursive(child);
-    }
+  for (int i = 0; i < clusterCount; i++) {
+    tlas_node_t &child = tlasNodes_[childIndices[i]];
+    child = clusters[i].node;
+    buildRecursive(child);
   }
 
   node.leftFirst = childIndices[0];
-  node.childCount = clusters.size() == 1 ? 2 : clusters.size();
-  //---------------
-
-  // // Partition the primitives based on the best split
-  // uint32_t mid = partition(start, end, splitAxis, splitPos);
-  // if (mid == start || mid == end) {
-  //   mid = (start + end) / 2;
-  // }
-
-  // // Recursively build left and right subtrees
-  // uint32_t leftChild = buildRecursive(start, mid, currentInternalNodeIndex);
-  // uint32_t rightChild = buildRecursive(mid + 1, end, currentInternalNodeIndex);
-
-  // // Create internal node
-  // uint32_t nodeIndex = currentInternalNodeIndex++;
-  // auto &node = tlasNodes_[nodeIndex];
-  // node.setLeftRight(leftChild, rightChild);
-  // node.aabbMin = aabbMin;
-  // node.aabbMax = aabbMax;
-
-  // return nodeIndex;
+  node.childCount = clusterCount;
 }
 
 uint32_t TLAS::partition(int start, int end, int axis, float splitPos) {
@@ -410,37 +382,34 @@ uint32_t TLAS::partition(int start, int end, int axis, float splitPos) {
 
   while (left <= right) {
     while (left <= end) {
-      auto &node = tlasLeaves_[left];
-      float centroid = (node.aabbMin[axis] + node.aabbMax[axis]) / 2;
+      auto &leaf = tlasLeaves_[nodeIndices_[left]];
+      float centroid = (leaf.aabbMin[axis] + leaf.aabbMax[axis]) / 2;
       if (centroid < splitPos)
         left++;
       else
         break;
     }
     while (right >= start) {
-      auto &node = tlasLeaves_[right];
-      float centroid = (node.aabbMin[axis] + node.aabbMax[axis]) / 2;
+      auto &leaf = tlasLeaves_[nodeIndices_[right]];
+      float centroid = (leaf.aabbMin[axis] + leaf.aabbMax[axis]) / 2;
       if (centroid >= splitPos)
         right--;
       else
         break;
     }
     if (left < right) {
-      std::swap(tlasLeaves_[left], tlasLeaves_[right]);
+      std::swap(nodeIndices_[left], nodeIndices_[right]);
       left++;
       right--;
     }
   }
 
-  // All elements < splitPos → force split at last element
   if (right < start)
     return end;
 
-  // All elements >= splitPos → force split at first element
   if (left > end)
     return start;
 
-  // Return partition point
   return right;
 }
 
@@ -470,7 +439,7 @@ Split TLAS::findBestSplitPlane(tlas_node_t &node) const {
       float3_t rightMin(LARGE_FLOAT), rightMax(-LARGE_FLOAT);
 
       for (uint32_t j = start; j <= end; ++j) {
-        const tlas_node_t &leaf = tlasLeaves_[j];
+        const tlas_node_t &leaf = tlasLeaves_[nodeIndices_[j]];
         float centroid = (leaf.aabbMin[axis] + leaf.aabbMax[axis]) / 2;
         if (centroid < candidatePos) {
           leftMin = fminf(leftMin, leaf.aabbMin);
@@ -519,7 +488,7 @@ void TLAS::updateNode(tlas_node_t &node, uint32_t start, uint32_t end){
 void TLAS::updateTriCount(tlas_node_t &node) const {
   uint32_t count = 0;
   for (uint32_t i = node.start; i <= node.end; ++i) {
-    count += tlasLeaves_[i].triCount;
+    count += tlasLeaves_[nodeIndices_[i]].triCount;
   }
   node.triCount = count;
 }
@@ -527,8 +496,8 @@ void TLAS::updateTriCount(tlas_node_t &node) const {
 void TLAS::updateNodeBounds(tlas_node_t &node) const {
   AABB bounds;
   for (uint32_t i = node.start; i <= node.end; ++i) {
-    bounds.grow(tlasLeaves_[i].aabbMin);
-    bounds.grow(tlasLeaves_[i].aabbMax);
+    bounds.grow(tlasLeaves_[nodeIndices_[i]].aabbMin);
+    bounds.grow(tlasLeaves_[nodeIndices_[i]].aabbMax);
   }
   node.aabbMin = bounds.bmin;
   node.aabbMax = bounds.bmax;
