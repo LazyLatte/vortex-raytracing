@@ -304,6 +304,7 @@ void RTUnit::print_stats() const {
         "awaiting_scheduling",
         "awaiting_mf",
         "executing_op",
+        "waiting_shader",
         "trace_complete"
     };
 

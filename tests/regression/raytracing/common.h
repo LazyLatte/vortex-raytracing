@@ -25,11 +25,12 @@ enum MaterialModel : int {
 };
 
 enum Geomrtry : uint32_t {
-  Sphere = 0, 
-  CornellBox = 1, 
+  Sphere = 0,
+  CornellBox = 1,
   Bunny = 2,
-  Sponza = 3, 
-  Chestnut = 4
+  Sponza = 3,
+  Chestnut = 4,
+  Ship = 5
 };
 
 //enum ShapeType : uint32_t { Sphere = 0 };

@@ -190,7 +190,12 @@ void RtuTraceData::track_rt_cycles(bool active, ThreadMask &tmask) {
             }
             // Otherwise the thread must be done or inactive
             else {
-                m_per_scalar_thread[i].status_num_cycles[warp_status][trace_complete]++;
+                if(m_per_scalar_thread[i].terminate){
+                    m_per_scalar_thread[i].status_num_cycles[warp_status][trace_complete]++;
+                }else{
+                    m_per_scalar_thread[i].status_num_cycles[warp_status][waiting_shader]++;
+                }
+                
             }
         }
     }

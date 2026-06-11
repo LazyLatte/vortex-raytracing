@@ -95,7 +95,7 @@ void RTCore::traverse(uint32_t rayID, per_thread_info &thread_info){
     uint32_t aabb_ptr = dcrs_.base_dcrs.read(VX_DCR_BASE_RTX_AABB_PTR);
 
     TraversalState& state = traversal_states_[rayID];
-    
+    thread_info.rayID = rayID;
     while(1){
         switch(state.status){
             case TraversalStatus::TRACE: {
@@ -140,6 +140,7 @@ void RTCore::traverse(uint32_t rayID, per_thread_info &thread_info){
 
                         if(state.leaf_flags == NON_OPAQUE){
                             shader_queue_push(ShaderType::ANYHIT, rayID);
+                            thread_info.terminate = false;
                             return;
                         }
 
@@ -178,6 +179,7 @@ void RTCore::traverse(uint32_t rayID, per_thread_info &thread_info){
 
                     if(state.has_prim_hit()){
                         shader_queue_push(ShaderType::INTERSECTION, rayID);
+                        thread_info.terminate = false;
                         return;
                     }
                 }
@@ -197,6 +199,7 @@ void RTCore::traverse(uint32_t rayID, per_thread_info &thread_info){
                 if(state.root_ptr == tlas_ptr || state.root_level == 0 || state.trail[0] == RT_BVH_WIDTH){
                     // TLAS Finished
                     shader_queue_push(state.best_hit.valid ? ShaderType::CLOSET : ShaderType::MISS, rayID);
+                    thread_info.terminate = true;
                     return;
                 }else{
                     // BLAS Finished (BLAS -> TLAS)

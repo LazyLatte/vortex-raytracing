@@ -13,6 +13,7 @@ public:
     static Scene* Sponza();
     static Scene* Carnival();
     static Scene* Chestnut();
+    static Scene* Ship();
     static Scene* RayTracingInOneWeekend();
 	static const std::vector<std::pair<std::string, std::function<Scene* (void)>>> AllScenes;
 };

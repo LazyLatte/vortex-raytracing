@@ -16,9 +16,30 @@ RTSim::RTSim(RTUnit* simobject)
   , cur_trace(nullptr)
 {}
 
-void RTSim::add_warp(){
-  if (warp_buffers_.size() >= RT_WARP_BUFFER_SIZE) return;
+void RTSim::append_transaction(instr_trace_t *commit_trace){
+  auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(commit_trace->data);
+  for(auto& thread_info : trace_data->m_per_scalar_thread){
+    bool thread_found = false;
+    for (instr_trace_t *trace : warp_buffers_) {
+      auto cur_trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
+      for(auto& cur_thread_info : cur_trace_data->m_per_scalar_thread){
+        if(cur_thread_info.rayID == thread_info.rayID){
+          cur_thread_info.RT_mem_accesses.insert(
+            cur_thread_info.RT_mem_accesses.end(), 
+            thread_info.RT_mem_accesses.begin(), 
+            thread_info.RT_mem_accesses.end()
+          );
+          cur_thread_info.terminate = thread_info.terminate;
+          thread_found = true;
+          break;
+        }
+      }
+      if(thread_found) break;
+    }
+  }
+}
 
+void RTSim::add_warp(){
   for (uint32_t iw = 0; iw < ISSUE_WIDTH; ++iw){
     auto& input = simobject_->Inputs.at(iw);
 		if (input.empty())
@@ -34,14 +55,26 @@ void RTSim::add_warp(){
       continue;
     }
 
-    auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
-    if(trace_data->rt_mem_accesses_empty()){
+    if(op_type == RtuType::COMMIT){
       if(simobject_->Outputs.at(iw).try_send(trace, 1)){
+        append_transaction(trace);
         input.pop();
       }
       continue;
     }
 
+    // auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
+    // if(trace_data->rt_mem_accesses_empty()){
+    //   if(simobject_->Outputs.at(iw).try_send(trace, 1)){
+    //     input.pop();
+    //   }
+    //   continue;
+    // }
+
+    //std::cout << "Trace ";
+    if (warp_buffers_.size() >= RT_WARP_BUFFER_SIZE) continue;
+    //std::cout << op_type <<std::endl;
+    
     assert(warp_buffers_.count(trace) == 0);
     warp_buffers_.insert(trace);
     warp_latencies_[trace] = 0;
@@ -185,7 +218,11 @@ void RTSim::check_completion(){
     auto trace_data = std::dynamic_pointer_cast<RtuTraceData>(trace->data);
     
     // A completed warp has no more memory accesses and all the intersection delays are complete and has no pending writes
-    if (trace_data->rt_mem_accesses_empty() && trace_data->rt_intersection_delay_done() && !trace_data->has_pending_writes()) {      
+    if (trace_data->rt_mem_accesses_empty() 
+      && trace_data->rt_intersection_delay_done() 
+      && !trace_data->has_pending_writes() 
+      && trace_data->rt_traversal_terminate()
+    ) {      
       perf_stats_.rt_total_warps++;
       perf_stats_.rt_total_warp_latency += warp_latencies_[trace];
       perf_stats_.rt_warp_latencies.push_back(warp_latencies_[trace]);

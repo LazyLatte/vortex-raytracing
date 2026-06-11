@@ -3,6 +3,7 @@
 #include "bunny.h"
 #include "sponza.h"
 #include "chestnut.h"
+#include "ship.h"
 #include <vx_spawn.h>
 #include <vx_print.h>
 #include <vx_raytrace.h>
@@ -34,6 +35,9 @@ void _start(kernel_arg_t *arg){
             break;
         case Geomrtry::Chestnut: // Chestnut
             Shader::Chestnut::CHS(payload, arg);
+            break;
+        case Geomrtry::Ship: // Ship
+            Shader::Ship::CHS(payload, arg);
             break;
         default: break;
     }

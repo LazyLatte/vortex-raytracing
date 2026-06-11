@@ -177,6 +177,26 @@ Scene* SceneList::RayTracingInOneWeekend() {
     return scene;
 }
 
+Scene* SceneList::Ship() {
+    auto s_model = resolve_path("assets/karimSchooner.obj", ASSETS_PATHS);
+    auto* shipMesh = new Mesh(s_model, Geomrtry::Ship);
+
+    const mat4_t T = mat4_t::Translate(float3_t(173.0f, -9.0f, -377.0f))
+        * mat4_t::Scale(100.0f)
+        * mat4_t::RotateY(75.0f * PI / 180.0f);
+    shipMesh->setTransform(T);
+
+    Scene* scene = new Scene({shipMesh});
+
+    scene->camera_pos   = float3_t(378.0f, 278.0f, 500.0f);
+    scene->camera_front = normalize(float3_t(-200.0f, 0.0f, -500.0f));
+    scene->camera_fov   = 2.1445f;  // 50° vertical FOV: 1/tan(25°)
+
+    scene->light_pos        = float3_t(0.0f, 0.0f, 0.0f);
+    scene->background_color = float3_t(0.5f, 0.7f, 1.0f);
+    return scene;
+}
+
 Scene* SceneList::Chestnut() {
     auto s_model = resolve_path(std::string("assets/") + "Chestnut/chestnut.obj", ASSETS_PATHS);
     auto* chestnutMesh = new Mesh(s_model, Geomrtry::Chestnut, false);
@@ -201,5 +221,6 @@ const std::vector<std::pair<std::string, std::function<Scene* (void)>>> SceneLis
     {"sponza", Sponza},
     {"carnival", Carnival},
     {"chestnut", Chestnut},
+    {"ship", Ship},
     {"rtiow", RayTracingInOneWeekend}
 };

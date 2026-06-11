@@ -17,6 +17,7 @@ enum rt_ray_status {
   awaiting_scheduling,
   awaiting_mf,
   executing_op,
+  waiting_shader,
   trace_complete,
   ray_statuses
 };
@@ -66,7 +67,8 @@ struct per_thread_info {
 
   std::deque<RTMemoryTransactionRecord> RT_mem_accesses;
   std::vector<MemoryStoreTransactionRecord> RT_store_transactions;
-
+  bool terminate = false;
+  uint32_t rayID = 0xFFFFFFFF;
   bool ray_intersect = false;
   unsigned intersection_delay = 0;
   unsigned status_num_cycles[warp_statuses][ray_statuses] = {};
@@ -81,6 +83,15 @@ struct RtuTraceData : public ITraceData {
   std::set<std::pair<uint32_t, uint32_t>> m_next_rt_accesses_set;
   std::set<uint32_t> m_pending_writes;
   RtuTraceData(uint32_t num_threads = 0) : m_per_scalar_thread(num_threads){}
+
+  bool rt_traversal_terminate(){
+    for (unsigned i = 0; i < m_per_scalar_thread.size(); i++) {
+      if(!m_per_scalar_thread[i].terminate){
+        return false;
+      }
+    }
+    return true;
+  }
 
   bool has_pending_writes() { return !m_pending_writes.empty(); }
   bool rt_mem_accesses_empty(){

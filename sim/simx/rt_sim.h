@@ -24,7 +24,7 @@ private:
 	void add_warp();
 	void remove_warp(instr_trace_t *target_trace);
 	void check_completion();
-
+	void append_transaction(instr_trace_t *commit_trace);
     uint32_t num_blocks_;
     uint32_t num_lanes_;
 
